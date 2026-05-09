@@ -7,6 +7,9 @@ plugins {
     alias(libs.plugins.google.protobuf)
 }
 
+group = "com.jccdex.toolkits"
+version = "0.1.0"
+
 android {
     namespace = "com.jccdex.toolkits.vault"
     compileSdk = 36
@@ -44,9 +47,9 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.datastore)
-    implementation(libs.androidx.datastore.core)
-    implementation(libs.protobuf.javalite)
-    implementation(libs.tink.android)
+    api(libs.androidx.datastore.core)
+    api(libs.protobuf.javalite)
+    api(libs.tink.android)
     implementation(libs.bcprov.jdk15to18)
     implementation(libs.kotlinx.coroutines.android)
 

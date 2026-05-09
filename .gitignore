@@ -31,3 +31,9 @@ replay_pid*
 local.properties
 **/build/
 .gradle/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
