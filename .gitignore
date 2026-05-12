@@ -37,3 +37,9 @@ local.properties
 *.iml
 .vscode/
 .DS_Store
+.gitnexus
+AGENTS.md
+CLAUDE.md
+
+# Cursor / Claude local agent config (do not commit)
+.claude/
