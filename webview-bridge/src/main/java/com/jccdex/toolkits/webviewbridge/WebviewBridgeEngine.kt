@@ -41,8 +41,13 @@ object WebviewBridgeEngine {
 
     private fun getWebView(): WebView? = webViewRef?.get()
 
+    /**
+     * Creates the headless [WebView] on the **main thread** only.
+     * Must never be called from a background dispatcher (Android throws
+     * "WebView cannot be initialized on a thread that has no Looper").
+     */
     @SuppressLint("SetJavaScriptEnabled")
-    fun start() {
+    private fun startInternal() {
         if (getWebView() != null) return
 
         val ctx =
@@ -99,6 +104,38 @@ object WebviewBridgeEngine {
         webViewRef = WeakReference(webView)
     }
 
+    /**
+     * Idempotent: safe from any thread. If not on the main looper, work is posted to the main thread.
+     */
+    fun start() {
+        if (getWebView() != null) return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            startInternal()
+        } else {
+            mainHandler.post { startInternal() }
+        }
+    }
+
+    private suspend fun ensureWebViewStarted() {
+        if (getWebView() != null) return
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            startInternal()
+            return
+        }
+        suspendCancellableCoroutine { cont ->
+            mainHandler.post {
+                try {
+                    if (getWebView() == null) {
+                        startInternal()
+                    }
+                    cont.resume(Unit)
+                } catch (e: Throwable) {
+                    cont.resumeWithException(e)
+                }
+            }
+        }
+    }
+
     private suspend fun awaitReady(timeoutMs: Long) {
         if (JsPromiseGateway.isReady()) return
 
@@ -139,7 +176,7 @@ object WebviewBridgeEngine {
             throw IllegalStateException("WebviewBridgeEngine not initialized. Call initialize(context) first.")
         }
 
-        if (getWebView() == null) start()
+        ensureWebViewStarted()
 
         awaitReady(readyWaitMs.coerceAtMost(timeoutMs))
 

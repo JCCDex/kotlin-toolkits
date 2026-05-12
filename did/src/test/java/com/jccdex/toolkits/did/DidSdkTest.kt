@@ -1,0 +1,77 @@
+package com.jccdex.toolkits.did
+
+import com.jccdex.toolkits.did.model.ChainType
+import com.jccdex.toolkits.did.model.WalletAccount
+import com.jccdex.toolkits.did.model.Nft
+import com.jccdex.toolkits.did.port.DidAvatarResolver
+import com.jccdex.toolkits.did.port.DidChainGateway
+import com.jccdex.toolkits.did.port.DidDocumentRepository
+import com.jccdex.toolkits.did.port.DidDocumentStore
+import com.jccdex.toolkits.did.service.DidCoreService
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class DidSdkTest {
+    private val bridge = mockk<DidChainGateway>(relaxed = true)
+    private val repository = mockk<DidDocumentRepository>(relaxed = true)
+    private val store = mockk<DidDocumentStore>(relaxed = true)
+    private val coreService = mockk<DidCoreService>(relaxed = true)
+    private val avatarResolver = mockk<DidAvatarResolver>(relaxed = true)
+
+    private val sdk = DidSdk(bridge, repository, store, coreService, avatarResolver)
+
+    @Test
+    fun `toDid formats wallet addresses`() {
+        val evm =
+            WalletAccount(
+                address = "0x1234567890abcdef1234567890abcdef12345678",
+                chain = ChainType.ETH,
+                publicKey = "pub"
+            )
+        val swtc =
+            WalletAccount(
+                address = "jcccc",
+                chain = ChainType.SWTC,
+                publicKey = "pub"
+            )
+
+        assertEquals("did:ethr:0x1234567890AbcdEF1234567890aBcdef12345678", sdk.toDid(evm))
+        assertEquals("did:swtc:jcccc", sdk.toDid(swtc))
+        assertEquals("", sdk.toDid(null))
+    }
+
+    @Test
+    fun `getProfile returns null without profile service`() {
+        assertNull(sdk.getProfile("""{"service":[]}"""))
+    }
+
+    @Test
+    fun `resolveDid prefers core service when available`() = runTest {
+        coEvery { coreService.resolveAndSaveDid("did:test:1") } returns "resolved"
+
+        assertEquals("resolved", sdk.resolveDid("did:test:1"))
+    }
+
+    @Test
+    fun `generateSwtcNft delegates to avatar resolver`() = runTest {
+        val expected =
+            Nft(
+                contract = "issuer",
+                tokenId = "1",
+                name = "avatar",
+                uri = "https://example.com/meta.json",
+                image = "https://example.com/avatar.png",
+                hasLocal = true,
+                issuanceDate = "2025-01-01T00:00:00Z",
+                chainId = null
+            )
+        coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns expected
+
+        assertEquals(expected, sdk.generateSwtcNft("""{"credentialSubject":{}}"""))
+    }
+}

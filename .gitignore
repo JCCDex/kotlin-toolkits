@@ -37,3 +37,4 @@ local.properties
 *.iml
 .vscode/
 .DS_Store
+.gitnexus

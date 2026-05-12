@@ -8,6 +8,7 @@ protobufJavalite = "3.25.5"
 protobuf = "0.9.6"
 tinkAndroid = "1.20.0"
 bcprovJdk15to18 = "1.83"
+kotlinxCoroutinesCore = "1.10.2"
 kotlinxCoroutinesAndroid = "1.10.2"
 kotlinxCoroutinesTest = "1.10.2"
 junit = "4.13.2"
@@ -26,6 +27,7 @@ protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.
 tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tinkAndroid" }
 bcprov-jdk15to18 = { module = "org.bouncycastle:bcprov-jdk15to18", version.ref = "bcprovJdk15to18" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutinesAndroid" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesTest" }
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
