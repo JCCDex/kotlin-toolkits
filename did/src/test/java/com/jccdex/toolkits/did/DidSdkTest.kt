@@ -1,15 +1,16 @@
 package com.jccdex.toolkits.did
 
 import com.jccdex.toolkits.did.model.ChainType
-import com.jccdex.toolkits.did.model.WalletAccount
+import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.Nft
+import com.jccdex.toolkits.did.port.DidAvatarAsset
+import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
 import com.jccdex.toolkits.did.port.DidAvatarResolver
-import com.jccdex.toolkits.did.port.DidChainGateway
-import com.jccdex.toolkits.did.port.DidDocumentRepository
-import com.jccdex.toolkits.did.port.DidDocumentStore
+import com.jccdex.toolkits.did.port.DidBridge
 import com.jccdex.toolkits.did.service.DidCoreService
+import com.jccdex.toolkits.did.model.WalletAccount
+import com.jccdex.toolkits.did.util.ChecksumUtils
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -17,13 +18,12 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DidSdkTest {
-    private val bridge = mockk<DidChainGateway>(relaxed = true)
-    private val repository = mockk<DidDocumentRepository>(relaxed = true)
-    private val store = mockk<DidDocumentStore>(relaxed = true)
+    private val bridge = mockk<DidBridge>(relaxed = true)
     private val coreService = mockk<DidCoreService>(relaxed = true)
     private val avatarResolver = mockk<DidAvatarResolver>(relaxed = true)
+    private val avatarCredentialSource = mockk<DidAvatarCredentialSource>(relaxed = true)
 
-    private val sdk = DidSdk(bridge, repository, store, coreService, avatarResolver)
+    private val sdk = DidSdk(bridge, coreService, avatarResolver, avatarCredentialSource)
 
     @Test
     fun `toDid formats wallet addresses`() {
@@ -73,5 +73,52 @@ class DidSdkTest {
         coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns expected
 
         assertEquals(expected, sdk.generateSwtcNft("""{"credentialSubject":{}}"""))
+    }
+
+    @Test
+    fun `getAvatarNftCredentials maps candidates into sdk credentials`() = runTest {
+        val account =
+            WalletAccount(
+                address = "0x1234567890abcdef1234567890abcdef12345678",
+                chain = ChainType.ETH,
+                publicKey = "pub"
+            )
+        coEvery {
+            avatarCredentialSource.getAvatarCandidates(account)
+        } returns
+            listOf(
+                DidAvatarAsset(
+                    image = "https://example.com/avatar.png",
+                    name = "avatar",
+                    contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                    tokenId = "1",
+                    issuer = null,
+                    tokenName = "Avatar",
+                    chainId = 1L,
+                    isSwtc = false
+                )
+            )
+
+        val result = sdk.getAvatarNftCredentials(account)
+        val ownerDid = sdk.toDid(account)
+        val checksumContract = ChecksumUtils.toChecksumAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+
+        assertEquals(
+            listOf(
+                DidAvatarCredential(
+                    credentialId = "$ownerDid#nft-$checksumContract-1",
+                    image = "https://example.com/avatar.png",
+                    name = "avatar",
+                    contract = checksumContract,
+                    tokenId = "1",
+                    issuer = checksumContract,
+                    tokenName = "Avatar",
+                    chainId = 1L,
+                    isSwtc = false,
+                    ownerDid = ownerDid
+                )
+            ),
+            result
+        )
     }
 }

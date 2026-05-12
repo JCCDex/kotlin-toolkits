@@ -1,6 +1,6 @@
 package com.jccdex.toolkits.did.model
 
-data class AvatarNftCredential(
+data class DidAvatarCredential(
     val credentialId: String,
     val image: String?,
     val name: String,
@@ -17,3 +17,16 @@ data class DidWriteResult(
     val success: Boolean,
     val didDocument: String? = null
 )
+
+data class DidSyncEntry(
+    val did: String,
+    val addressLower: String,
+    val document: String,
+    val nickname: String
+)
+
+data class DidSyncResult(
+    val entries: List<DidSyncEntry>
+) {
+    val addressesLower: Set<String> = entries.mapTo(linkedSetOf()) { it.addressLower }
+}

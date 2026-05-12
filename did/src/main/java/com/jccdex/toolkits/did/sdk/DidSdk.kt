@@ -1,8 +1,8 @@
 package com.jccdex.toolkits.did
 
 import android.util.Log
-import com.jccdex.toolkits.did.model.AvatarNftCredential
 import com.jccdex.toolkits.did.model.ChainType
+import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.Did
 import com.jccdex.toolkits.did.model.DidEntity
 import com.jccdex.toolkits.did.model.DidStatResult
@@ -13,16 +13,19 @@ import com.jccdex.toolkits.did.model.ProfileVC
 import com.jccdex.toolkits.did.model.PublishDidResult
 import com.jccdex.toolkits.did.model.VerificationMethod
 import com.jccdex.toolkits.did.model.WalletAccount
+import com.jccdex.toolkits.did.port.DidAvatarAsset
+import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
 import com.jccdex.toolkits.did.port.DidAvatarResolver
-import com.jccdex.toolkits.did.port.DidChainGateway
-import com.jccdex.toolkits.did.port.DidDocumentRepository
-import com.jccdex.toolkits.did.port.DidDocumentStore
+import com.jccdex.toolkits.did.port.DidBridge
 import com.jccdex.toolkits.did.service.DidCoreService
+import com.jccdex.toolkits.did.service.DidResolver
+import com.jccdex.toolkits.did.store.DidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,12 +33,11 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-class DidSdk(
-    private val bridge: DidChainGateway,
-    private val repository: DidDocumentRepository,
-    private val store: DidDocumentStore? = null,
-    private val coreService: DidCoreService? = null,
-    private val avatarResolver: DidAvatarResolver? = null
+class DidSdk internal constructor(
+    private val bridge: DidBridge,
+    private val core: DidCoreService,
+    private val avatarResolver: DidAvatarResolver? = null,
+    private val avatarCredentialSource: DidAvatarCredentialSource? = null,
 ) {
     fun toDid(wallet: WalletAccount?): String {
         if (wallet == null) return ""
@@ -50,6 +52,12 @@ class DidSdk(
         if (address.length <= 8) address else address.substring(0, 4) + "***" + address.takeLast(4)
 
     fun nickname(doc: String): String = getProfile(doc)?.nickname.orEmpty()
+
+    fun observeDidDocument(did: String): Flow<DidEntity?> = core.observe(did)
+
+    fun observeAllDidDocuments(): Flow<List<DidEntity>> = core.observeAll()
+
+    suspend fun getDidDocument(did: String): DidEntity? = core.getDidDocument(did)
 
     fun getProfile(doc: String): Profile? {
         val nickname = readProfileField(doc, "nickname")
@@ -67,7 +75,7 @@ class DidSdk(
     suspend fun generateDid(did: String): Did? =
         withContext(Dispatchers.Default) {
             try {
-                val entity = repository.get(did) ?: return@withContext null
+                val entity = core.getDidDocument(did) ?: return@withContext null
                 entity.toDid(did)
             } catch (e: Exception) {
                 Log.e("DidSdk", "generateDid error", e)
@@ -78,7 +86,7 @@ class DidSdk(
     suspend fun generateProfileVC(did: String): ProfileVC? =
         withContext(Dispatchers.Default) {
             try {
-                val entity = repository.get(did) ?: return@withContext null
+                val entity = core.getDidDocument(did) ?: return@withContext null
                 val profile = getProfile(entity.doc)
                 val credentials = readJsonArray(entity.doc, "credentials")
                 var nft: Nft? = null
@@ -134,6 +142,16 @@ class DidSdk(
         return buildEthrNft(vc)
     }
 
+    suspend fun getAvatarNftCredentials(account: WalletAccount): List<DidAvatarCredential> {
+        val ownerDid = toDid(account)
+        if (ownerDid.isBlank()) return emptyList()
+
+        val source = avatarCredentialSource ?: return emptyList()
+        return source.getAvatarCandidates(account).map { asset ->
+            buildAvatarCredential(ownerDid, asset)
+        }
+    }
+
     private suspend fun buildEthrNft(vc: String): Nft? {
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val contract = readString(vc, "credentialSubject.contractAddress") ?: ""
@@ -154,8 +172,6 @@ class DidSdk(
             null
         }
     }
-
-    suspend fun getAvatarNftCredentials(account: WalletAccount): List<AvatarNftCredential> = emptyList()
 
     suspend fun uploadInitialDidDoc(
         privateKey: String,
@@ -248,7 +264,7 @@ class DidSdk(
                         PublishDidResult::class.java
                     )
                 if (res.code == "0") {
-                    repository.saveCreated(did, didDocJson)
+                    core.saveNewCreatedDid(did, didDocJson)
                     true
                 } else {
                     false
@@ -309,7 +325,7 @@ class DidSdk(
                 json.remove("did")
                 val res = publishDid(did, privateKey, json.toString())
                 if (res.code == "0") {
-                    repository.saveNickname(did, json.toString())
+                    core.saveNewNicknameDid(did, json.toString())
                     true
                 } else {
                     false
@@ -324,7 +340,7 @@ class DidSdk(
         privateKey: String,
         did: String,
         currentDoc: String,
-        selectedAvatar: AvatarNftCredential
+        selectedAvatar: DidAvatarCredential
     ): Boolean =
         withContext(Dispatchers.IO) {
             try {
@@ -381,7 +397,7 @@ class DidSdk(
                 json.remove("did")
                 val res = publishDid(did, privateKey, json.toString())
                 if (res.code == "0") {
-                    repository.saveAvatar(did, json.toString())
+                    core.saveNewAvatarDid(did, json.toString())
                     true
                 } else {
                     false
@@ -400,8 +416,8 @@ class DidSdk(
             try {
                 val res = publishDid(did, privateKey, JSONObject().toString())
                 if (res.code == "0") {
-                    val doc = repository.get(did)?.doc
-                    repository.delete(did, doc)
+                    val doc = core.getDidDocument(did)?.doc
+                    core.deleteDidDocument(did, doc)
                     true
                 } else {
                     false
@@ -412,8 +428,7 @@ class DidSdk(
             }
         }
 
-    suspend fun resolveDid(did: String): String? =
-        coreService?.resolveAndSaveDid(did) ?: repository.resolveAndSave(did)
+    suspend fun resolveDid(did: String): String? = core.resolveAndSaveDid(did)
 
     private suspend fun publishDid(
         did: String,
@@ -433,7 +448,7 @@ class DidSdk(
     private suspend fun generateAvatarVc(
         privateKey: String,
         did: String,
-        selectedAvatar: AvatarNftCredential
+        selectedAvatar: DidAvatarCredential
     ): String =
         bridge.call(
             "generateVC",
@@ -449,7 +464,7 @@ class DidSdk(
 
     private fun buildAvatarSubject(
         did: String,
-        selectedAvatar: AvatarNftCredential
+        selectedAvatar: DidAvatarCredential
     ): JSONObject {
         return if (selectedAvatar.isSwtc) {
             JSONObject().apply {
@@ -504,7 +519,7 @@ class DidSdk(
 
         if (!chainDoc.isNullOrBlank() && chainDoc != "{}") return chainDoc
 
-        return repository.get(did)?.doc
+        return core.getDidDocument(did)?.doc
     }
 
     private fun readServices(json: JSONObject): JSONArray = json.optJSONArray("service") ?: json.optJSONArray("services") ?: JSONArray()
@@ -628,4 +643,58 @@ class DidSdk(
 
     private fun isSwtcDid(id: String): Boolean = id.startsWith("did:swtc")
     private fun isEthrDid(id: String): Boolean = id.startsWith("did:ethr")
+
+    private fun buildAvatarCredential(
+        ownerDid: String,
+        asset: DidAvatarAsset
+    ): DidAvatarCredential {
+        return if (asset.isSwtc) {
+            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
+            DidAvatarCredential(
+                credentialId = "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}",
+                image = asset.image,
+                name = asset.name,
+                contract = asset.issuer,
+                tokenId = asset.tokenId,
+                issuer = asset.issuer,
+                tokenName = asset.tokenName,
+                chainId = null,
+                isSwtc = true,
+                ownerDid = ownerDid
+            )
+        } else {
+            val checksumContract =
+                asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
+            DidAvatarCredential(
+                credentialId = "$ownerDid#nft-$checksumContract-${asset.tokenId}",
+                image = asset.image,
+                name = asset.name,
+                contract = checksumContract,
+                tokenId = asset.tokenId,
+                issuer = checksumContract,
+                tokenName = asset.tokenName,
+                chainId = asset.chainId,
+                isSwtc = false,
+                ownerDid = ownerDid
+            )
+        }
+    }
+
+    companion object {
+        fun create(
+            bridge: DidBridge,
+            store: DidStore,
+            resolver: DidResolver,
+            avatarResolver: DidAvatarResolver? = null,
+            avatarCredentialSource: DidAvatarCredentialSource? = null
+        ): DidSdk {
+            val core = DidCoreService(store, resolver)
+            return DidSdk(
+                bridge = bridge,
+                core = core,
+                avatarResolver = avatarResolver,
+                avatarCredentialSource = avatarCredentialSource
+            )
+        }
+    }
 }
