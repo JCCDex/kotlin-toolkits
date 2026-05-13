@@ -1,8 +1,13 @@
 # DID SDK（`kotlin-toolkits/:did`）
 
-本 SDK 提供 DID 文档的**创建 / 更新 / 发布 / 解析 / 本地存储（Room）**能力，并通过 `DidBridge` 对接链侧（通常是 WebView JS Runtime）。
+本 SDK 提供 DID 文档的**创建 / 更新 / 发布 / 解析 / 本地存储（Room）**能力。
 
-> 说明：SDK 本身不强绑定某个 App 的网络层与数据源；你需要在接入方实现少量端口（ports）。
+默认 Android 接入下，SDK 已内置：
+- DID 专用 WebView JS Runtime
+- Room 本地存储
+- `DidBridge` / `DidResolver` 默认实现
+
+接入方通常只需要提供头像相关扩展点。
 
 ## 1. 模块与关键类
 
@@ -21,6 +26,9 @@
   - `com.jccdex.toolkits.did.port.DidAvatarCredentialSource`（可选，提供头像 NFT 候选，供 SDK 组装 credential）
 
 ## 2. 端口（Ports）说明
+
+如果你使用默认 Android 工厂 `DidSdk.create(context, ...)`，`DidBridge` / `DidResolver` / `DidStore` 不需要自己实现。
+只有在你要替换默认 runtime 或默认存储时，才需要关注这些端口。
 
 ### 2.1 `DidBridge`（必需）
 
@@ -72,13 +80,9 @@ interface DidStore {
 ### 3.1 建议的初始化方式
 
 ```kotlin
-val didStore = RoomDidStore(DidRoomDatabase.getInstance(context).didDao())
-
 val didSdk =
     DidSdk.create(
-        bridge = didBridge,
-        store = didStore,
-        resolver = didResolver,
+        context = context,
         avatarResolver = didAvatarResolver, // 可选
         avatarCredentialSource = didAvatarCredentialSource // 可选
     )
@@ -86,9 +90,9 @@ val didSdk =
 
 职责边界：
 - `DidSdk`：DID 文档创建、更新、发布、解析与本地读写的统一 facade
-- `DidBridge`：链侧 JS/runtime 调用
-- `DidResolver`：链上 DID 文档解析
-- `DidStore`：本地 DID 文档持久化
+- 默认 `DidBridge`：SDK 内置 DID 专用 WebView runtime
+- 默认 `DidResolver`：通过内置 DID runtime 做链上 DID 解析
+- 默认 `DidStore`：SDK 内置 Room 存储
 - `DidAvatarCredentialSource`：头像候选来源，供 SDK 组装 credential
 - `DidAvatarResolver`：VC 到展示用 NFT 数据的补全器
 
@@ -109,26 +113,18 @@ val didSdk =
 @Module
 @InstallIn(SingletonComponent::class)
 object DidModule {
-    @Provides fun provideDidBridge(): DidBridge = WebviewDidChainGateway()
-    @Provides fun provideDidResolver(): DidResolver = DidWebResolver()
-    @Provides fun provideDidStore(@ApplicationContext context: Context): DidStore =
-        RoomDidStore(DidRoomDatabase.getInstance(context).didDao())
     @Provides fun provideDidAvatarCredentialSource(
         swtcNftRepository: SwtcNftRepository,
         evmTokenRepository: EvmTokenRepository
     ): DidAvatarCredentialSource =
         AppDidAvatarCredentialSource(swtcNftRepository, evmTokenRepository)
     @Provides fun provideDidSdk(
-        bridge: DidBridge,
-        store: DidStore,
-        resolver: DidResolver,
+        @ApplicationContext context: Context,
         avatarResolver: DidAvatarResolver,
         avatarCredentialSource: DidAvatarCredentialSource
     ): DidSdk =
         DidSdk.create(
-            bridge = bridge,
-            store = store,
-            resolver = resolver,
+            context = context,
             avatarResolver = avatarResolver,
             avatarCredentialSource = avatarCredentialSource
         )
@@ -137,28 +133,46 @@ object DidModule {
 
 ## 4. Android WebView 初始化（重要）
 
-如果你的 `DidBridge` 基于 WebView（例如 headless WebView + JS bridge）：
-- **建议在 Application `onCreate()` 主线程尽早启动**
-- SDK 内部可能在后台线程调用 `DidBridge`，桥接层必须保证 WebView 创建/初始化在主线程完成
+默认 Android 工厂内部使用 headless WebView 作为 DID runtime。
+- SDK 会在首次使用时自行初始化
+- 不需要 app 再额外初始化 DID 专用 bridge
+- SDK 内部已经保证 WebView 创建发生在主线程
 
-伪代码示例：
+如果你自己替换 `DidBridge` 实现，仍然需要满足：
+- 后台线程可调用
+- WebView 创建必须发生在主线程
 
-```kotlin
-override fun onCreate() {
-    super.onCreate()
-    WebviewBridge.initialize(applicationContext)
-    WebviewBridge.start() // 可重复调用（幂等）
-}
-```
+如果你还在 app 中保留钱包用的 `WebviewBridge`，它和 DID SDK 的 runtime 现在是分开的，不会互相覆盖。
 
 ## 5. Room 数据库说明
 
-`DidRoomDatabase.getInstance(context)` 会在首次使用时创建数据库与表结构（Room 默认行为）。
+`DidSdk.create(context, ...)` 默认会通过 `DidRoomDatabase.getInstance(context)` 自动创建数据库与表结构（Room 默认行为）。
 - 默认 DB 名：`DidRoomDatabase.DEFAULT_DATABASE_NAME`
-- 你也可以自行管理 `RoomDatabase` 实例并传入 DAO 来构建 `RoomDidStore`
 - 别的 App 接入时不需要手动创建 `did_documents` 表
+- 如需自定义 DB 名，可使用 `DidSdk.create(context, ..., databaseName = "...")`
 
-## 6. 测试
+如果你不用默认工厂，也可以继续手动构建：
+
+```kotlin
+val didStore = RoomDidStore(DidRoomDatabase.getInstance(context).didDao())
+```
+
+## 6. 手动装配模式
+
+如果你明确需要替换默认 runtime / resolver / store，仍然可以使用手动装配：
+
+```kotlin
+val didSdk =
+    DidSdk.create(
+        bridge = didBridge,
+        store = didStore,
+        resolver = didResolver,
+        avatarResolver = didAvatarResolver,
+        avatarCredentialSource = didAvatarCredentialSource
+    )
+```
+
+## 7. 测试
 
 在 `kotlin-toolkits` 目录下：
 

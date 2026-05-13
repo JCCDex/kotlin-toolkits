@@ -1,5 +1,7 @@
 package com.jccdex.toolkits.did
 
+import android.app.Application
+import android.util.Log
 import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.Nft
@@ -7,16 +9,23 @@ import com.jccdex.toolkits.did.port.DidAvatarAsset
 import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
 import com.jccdex.toolkits.did.port.DidAvatarResolver
 import com.jccdex.toolkits.did.port.DidBridge
-import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.model.WalletAccount
+import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class DidSdkTest {
     private val bridge = mockk<DidBridge>(relaxed = true)
     private val coreService = mockk<DidCoreService>(relaxed = true)
@@ -120,5 +129,48 @@ class DidSdkTest {
             ),
             result
         )
+    }
+
+    @Test
+    fun `updateDidAvatar keeps address params for js bridge compatibility`() = runTest {
+        mockkStatic(Log::class)
+        every { Log.e(any(), any(), any()) } returns 0
+
+        val did = "did:ethr:0x1234567890AbcdEF1234567890aBcdef12345678"
+        val selectedAvatar =
+            DidAvatarCredential(
+                credentialId = "$did#nft-0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD-1",
+                image = null,
+                name = "avatar",
+                contract = "0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD",
+                tokenId = "1",
+                issuer = "0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD",
+                tokenName = "Avatar",
+                chainId = 1L,
+                isSwtc = false,
+                ownerDid = did
+            )
+        val currentDoc =
+            """
+            {
+              "service": [
+                {
+                  "id": "$did#profile",
+                  "type": "Profile",
+                  "serviceEndpoint": {
+                    "nickname": "nick",
+                    "preferredAvatar": ""
+                  }
+                }
+              ],
+              "credentials": []
+            }
+            """.trimIndent()
+
+        val params = sdk.buildGenerateAvatarVcParams("0x1234", did, selectedAvatar)
+
+        assertEquals(did.substringAfterLast(':'), params.getString("address"))
+        assertEquals(did, params.getString("did"))
+        assertEquals(selectedAvatar.credentialId, params.getString("id"))
     }
 }

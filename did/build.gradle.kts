@@ -40,6 +40,7 @@ dependencies {
     implementation(libs.bcprov.jdk15to18)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    implementation(project(":webview-bridge"))
     ksp(libs.room.compiler)
 
     testImplementation(libs.junit)

@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.did
 
+import android.content.Context
 import android.util.Log
 import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
@@ -17,8 +18,11 @@ import com.jccdex.toolkits.did.port.DidAvatarAsset
 import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
 import com.jccdex.toolkits.did.port.DidAvatarResolver
 import com.jccdex.toolkits.did.port.DidBridge
+import com.jccdex.toolkits.did.sdk.AndroidDidWebRuntime
 import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.service.DidResolver
+import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
+import com.jccdex.toolkits.did.storage.room.RoomDidStore
 import com.jccdex.toolkits.did.store.DidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.google.gson.JsonElement
@@ -452,15 +456,23 @@ class DidSdk internal constructor(
     ): String =
         bridge.call(
             "generateVC",
-            JSONObject().apply {
-                put("id", selectedAvatar.credentialId)
-                put("types", JSONArray(listOf("VerifiableCredential", "NFTOwnership")))
-                put("subject", buildAvatarSubject(did, selectedAvatar))
-                put("privateKey", privateKey)
-                put("address", did.substringAfterLast(':'))
-                put("expirationDate", Instant.now().plusSeconds(365L * 24 * 60 * 60).toString())
-            }.toString()
+            buildGenerateAvatarVcParams(privateKey, did, selectedAvatar).toString()
         )
+
+    internal fun buildGenerateAvatarVcParams(
+        privateKey: String,
+        did: String,
+        selectedAvatar: DidAvatarCredential
+    ): JSONObject =
+        JSONObject().apply {
+            put("id", selectedAvatar.credentialId)
+            put("types", JSONArray(listOf("VerifiableCredential", "NFTOwnership")))
+            put("subject", buildAvatarSubject(did, selectedAvatar))
+            put("privateKey", privateKey)
+            put("address", did.substringAfterLast(':'))
+            put("did", did)
+            put("expirationDate", Instant.now().plusSeconds(365L * 24 * 60 * 60).toString())
+        }
 
     private fun buildAvatarSubject(
         did: String,
@@ -681,6 +693,23 @@ class DidSdk internal constructor(
     }
 
     companion object {
+        fun create(
+            context: Context,
+            avatarResolver: DidAvatarResolver? = null,
+            avatarCredentialSource: DidAvatarCredentialSource? = null,
+            databaseName: String = DidRoomDatabase.DEFAULT_DATABASE_NAME
+        ): DidSdk {
+            val runtime = AndroidDidWebRuntime(context)
+            val store = RoomDidStore(DidRoomDatabase.getInstance(context, databaseName).didDao())
+            val core = DidCoreService(store, runtime)
+            return DidSdk(
+                bridge = runtime,
+                core = core,
+                avatarResolver = avatarResolver,
+                avatarCredentialSource = avatarCredentialSource
+            )
+        }
+
         fun create(
             bridge: DidBridge,
             store: DidStore,
