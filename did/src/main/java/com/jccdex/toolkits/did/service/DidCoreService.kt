@@ -1,15 +1,15 @@
 package com.jccdex.toolkits.did.service
 
 import com.jccdex.toolkits.did.model.DidEntity
-import com.jccdex.toolkits.did.store.DidStore
+import com.jccdex.toolkits.did.store.IDidStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class DidCoreService(
-    private val store: DidStore,
-    private val resolver: DidResolver,
+    private val store: IDidStore,
+    private val resolver: IDidResolver,
 ) {
     private val pendingDeleteUpdated = mutableMapOf<String, String>()
     private val pendingCreateDids = mutableSetOf<String>()

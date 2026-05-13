@@ -15,15 +15,15 @@ import com.jccdex.toolkits.did.model.PublishDidResult
 import com.jccdex.toolkits.did.model.VerificationMethod
 import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.port.DidAvatarAsset
-import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
-import com.jccdex.toolkits.did.port.DidAvatarResolver
-import com.jccdex.toolkits.did.port.DidBridge
+import com.jccdex.toolkits.did.port.IDidAvatarCredentialSource
+import com.jccdex.toolkits.did.port.IDidAvatarResolver
+import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.sdk.AndroidDidWebRuntime
 import com.jccdex.toolkits.did.service.DidCoreService
-import com.jccdex.toolkits.did.service.DidResolver
+import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
 import com.jccdex.toolkits.did.storage.room.RoomDidStore
-import com.jccdex.toolkits.did.store.DidStore
+import com.jccdex.toolkits.did.store.IDidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
@@ -38,10 +38,10 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class DidSdk internal constructor(
-    private val bridge: DidBridge,
+    private val bridge: IDidBridge,
     private val core: DidCoreService,
-    private val avatarResolver: DidAvatarResolver? = null,
-    private val avatarCredentialSource: DidAvatarCredentialSource? = null,
+    private val avatarResolver: IDidAvatarResolver? = null,
+    private val avatarCredentialSource: IDidAvatarCredentialSource? = null,
 ) {
     fun toDid(wallet: WalletAccount?): String {
         if (wallet == null) return ""
@@ -695,8 +695,8 @@ class DidSdk internal constructor(
     companion object {
         fun create(
             context: Context,
-            avatarResolver: DidAvatarResolver? = null,
-            avatarCredentialSource: DidAvatarCredentialSource? = null,
+            avatarResolver: IDidAvatarResolver? = null,
+            avatarCredentialSource: IDidAvatarCredentialSource? = null,
             databaseName: String = DidRoomDatabase.DEFAULT_DATABASE_NAME
         ): DidSdk {
             val runtime = AndroidDidWebRuntime(context)
@@ -711,11 +711,11 @@ class DidSdk internal constructor(
         }
 
         fun create(
-            bridge: DidBridge,
-            store: DidStore,
-            resolver: DidResolver,
-            avatarResolver: DidAvatarResolver? = null,
-            avatarCredentialSource: DidAvatarCredentialSource? = null
+            bridge: IDidBridge,
+            store: IDidStore,
+            resolver: IDidResolver,
+            avatarResolver: IDidAvatarResolver? = null,
+            avatarCredentialSource: IDidAvatarCredentialSource? = null
         ): DidSdk {
             val core = DidCoreService(store, resolver)
             return DidSdk(

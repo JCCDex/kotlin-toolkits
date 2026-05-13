@@ -21,13 +21,13 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class WebviewBridgeClient {
-    private val gateway: PromiseGateway
+    private val gateway: IPromiseGateway
 
     constructor() {
         gateway = PromiseGatewayImpl()
     }
 
-    internal constructor(gateway: PromiseGateway) {
+    internal constructor(gateway: IPromiseGateway) {
         this.gateway = gateway
     }
 

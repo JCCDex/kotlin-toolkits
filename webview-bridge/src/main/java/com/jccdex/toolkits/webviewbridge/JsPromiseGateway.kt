@@ -4,7 +4,7 @@ import android.webkit.JavascriptInterface
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 
-internal interface PromiseGateway {
+internal interface IPromiseGateway {
     val callbackMap: ConcurrentHashMap<String, (String) -> Unit>
 
     fun onPromiseResult(
@@ -23,7 +23,7 @@ internal interface PromiseGateway {
     fun clearAll()
 }
 
-internal open class PromiseGatewayImpl : PromiseGateway {
+internal open class PromiseGatewayImpl : IPromiseGateway {
     override val callbackMap: ConcurrentHashMap<String, (String) -> Unit> = ConcurrentHashMap()
 
     private val readyListeners = CopyOnWriteArrayList<() -> Unit>()
@@ -80,7 +80,7 @@ internal open class PromiseGatewayImpl : PromiseGateway {
     }
 }
 
-object JsPromiseGateway : PromiseGateway {
+object JsPromiseGateway : IPromiseGateway {
     private val delegate = PromiseGatewayImpl()
 
     override val callbackMap: ConcurrentHashMap<String, (String) -> Unit>

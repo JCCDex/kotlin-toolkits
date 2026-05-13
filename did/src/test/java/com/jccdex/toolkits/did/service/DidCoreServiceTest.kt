@@ -1,7 +1,7 @@
 package com.jccdex.toolkits.did.service
 
 import com.jccdex.toolkits.did.model.DidEntity
-import com.jccdex.toolkits.did.store.DidStore
+import com.jccdex.toolkits.did.store.IDidStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +12,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DidCoreServiceTest {
-    private class MemoryDidStore : DidStore {
+    private class MemoryDidStore : IDidStore {
         private val allState = MutableStateFlow<List<DidEntity>>(emptyList())
         private val items = linkedMapOf<String, DidEntity>()
 
@@ -35,7 +35,7 @@ class DidCoreServiceTest {
 
     private class StaticResolver(
         private var value: String
-    ) : DidResolver {
+    ) : IDidResolver {
         override suspend fun resolve(did: String): String = value
     }
 

@@ -1,15 +1,15 @@
 package com.jccdex.toolkits.did.sdk
 
 import android.content.Context
-import com.jccdex.toolkits.did.port.DidBridge
-import com.jccdex.toolkits.did.service.DidResolver
+import com.jccdex.toolkits.did.port.IDidBridge
+import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
 import org.json.JSONObject
 
 internal class AndroidDidWebRuntime(
     context: Context
-) : DidBridge, DidResolver {
+) : IDidBridge, IDidResolver {
     private val bridgeClient =
         WebviewBridgeClient().apply {
             initialize(

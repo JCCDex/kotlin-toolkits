@@ -1,6 +1,5 @@
 package com.jccdex.toolkits.did.port
 
-import com.jccdex.toolkits.did.model.DidEntity
 import com.jccdex.toolkits.did.model.Nft
 import com.jccdex.toolkits.did.model.WalletAccount
 
@@ -9,12 +8,12 @@ import com.jccdex.toolkits.did.model.WalletAccount
  *
  * Implementations MUST be safe to call from background threads.
  */
-interface DidBridge {
+interface IDidBridge {
     suspend fun call(method: String, params: String? = null): String
     suspend fun <T> callAs(method: String, params: String? = null, clazz: Class<T>): T
 }
 
-interface DidAvatarResolver {
+interface IDidAvatarResolver {
     suspend fun resolveSwtcAvatar(vc: String): Nft?
     suspend fun resolveEthrAvatar(vc: String): Nft?
 }
@@ -24,7 +23,7 @@ interface DidAvatarResolver {
  *
  * This stays out of [com.jccdex.toolkits.did.DidSdk] to avoid coupling to app-specific DB schemas.
  */
-interface DidAvatarCredentialSource {
+interface IDidAvatarCredentialSource {
     suspend fun getAvatarCandidates(account: WalletAccount): List<DidAvatarAsset>
 }
 

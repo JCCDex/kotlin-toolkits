@@ -5,7 +5,7 @@
 默认 Android 接入下，SDK 已内置：
 - DID 专用 WebView JS Runtime
 - Room 本地存储
-- `DidBridge` / `DidResolver` 默认实现
+- `IDidBridge` / `IDidResolver` 默认实现
 
 接入方通常只需要提供头像相关扩展点。
 
@@ -14,28 +14,28 @@
 - **唯一入口**：`com.jccdex.toolkits.did.DidSdk.create(...)`
 - **本地存储**：
   - `com.jccdex.toolkits.did.storage.room.DidRoomDatabase`
-  - `com.jccdex.toolkits.did.storage.room.RoomDidStore`（实现 `DidStore`）
+  - `com.jccdex.toolkits.did.storage.room.RoomDidStore`（实现 `IDidStore`）
 - **核心服务**：
   - `com.jccdex.toolkits.did.service.DidCoreService`（DID 文档本地读写 + resolveAndSave）
   - `com.jccdex.toolkits.did.service.DidSyncService`（对一组账户批量 resolve）
 - **端口（Ports）**：
-  - `com.jccdex.toolkits.did.port.DidBridge`
-  - `com.jccdex.toolkits.did.service.DidResolver`
-  - `com.jccdex.toolkits.did.store.DidStore`
-  - `com.jccdex.toolkits.did.port.DidAvatarResolver`（可选）
-  - `com.jccdex.toolkits.did.port.DidAvatarCredentialSource`（可选，提供头像 NFT 候选，供 SDK 组装 credential）
+  - `com.jccdex.toolkits.did.port.IDidBridge`
+  - `com.jccdex.toolkits.did.service.IDidResolver`
+  - `com.jccdex.toolkits.did.store.IDidStore`
+  - `com.jccdex.toolkits.did.port.IDidAvatarResolver`（可选）
+  - `com.jccdex.toolkits.did.port.IDidAvatarCredentialSource`（可选，提供头像 NFT 候选，供 SDK 组装 credential）
 
 ## 2. 端口（Ports）说明
 
-如果你使用默认 Android 工厂 `DidSdk.create(context, ...)`，`DidBridge` / `DidResolver` / `DidStore` 不需要自己实现。
+如果你使用默认 Android 工厂 `DidSdk.create(context, ...)`，`IDidBridge` / `IDidResolver` / `IDidStore` 不需要自己实现。
 只有在你要替换默认 runtime 或默认存储时，才需要关注这些端口。
 
-### 2.1 `DidBridge`（必需）
+### 2.1 `IDidBridge`（必需）
 
 用于调用链侧/JS Runtime 的方法（例如：`didResolve`、`publishDid`、`generateVC` 等）。
 
 ```kotlin
-interface DidBridge {
+interface IDidBridge {
     suspend fun call(method: String, params: String? = null): String
     suspend fun <T> callAs(method: String, params: String? = null, clazz: Class<T>): T
 }
@@ -45,22 +45,22 @@ interface DidBridge {
 - **必须支持后台线程调用**（SDK 内部可能在 `Dispatchers.IO` 等线程执行）。
 - 如果底层由 WebView 驱动，务必保证 **WebView 初始化发生在主线程**（见「4. Android WebView 初始化」）。
 
-### 2.2 `DidResolver`（必需）
+### 2.2 `IDidResolver`（必需）
 
 用于从链 / 网络解析 DID 文档（返回字符串 JSON；链上不存在可能返回 `"{}"` 或空）。
 
 ```kotlin
-interface DidResolver {
+interface IDidResolver {
     suspend fun resolve(did: String): String
 }
 ```
 
-### 2.3 `DidStore`（必需）
+### 2.3 `IDidStore`（必需）
 
 SDK 的本地 DID 文档存储端口。Android 默认实现使用 Room：`RoomDidStore`。
 
 ```kotlin
-interface DidStore {
+interface IDidStore {
     fun observeAll(): Flow<List<DidEntity>>
     fun observe(did: String): Flow<DidEntity?>
     suspend fun get(did: String): DidEntity?
@@ -71,9 +71,9 @@ interface DidStore {
 
 ### 2.4 头像相关（可选）
 
-- `DidAvatarResolver`：用于把 VC 解析成 `Nft` 展示数据（例如补全图片、名称等）。
-- `DidAvatarCredentialSource`：用于从你的业务数据源里列出“可选头像 NFT”（通常来自本地 DB 或网络）。
-`DidSdk` 会把 `DidAvatarCredentialSource` 的结果组装成可直接用于头像选择和发布的 credential。
+- `IDidAvatarResolver`：用于把 VC 解析成 `Nft` 展示数据（例如补全图片、名称等）。
+- `IDidAvatarCredentialSource`：用于从你的业务数据源里列出“可选头像 NFT”（通常来自本地 DB 或网络）。
+`DidSdk` 会把 `IDidAvatarCredentialSource` 的结果组装成可直接用于头像选择和发布的 credential。
 
 ## 3. 快速接入（Android）
 
@@ -90,11 +90,11 @@ val didSdk =
 
 职责边界：
 - `DidSdk`：DID 文档创建、更新、发布、解析与本地读写的统一 facade
-- 默认 `DidBridge`：SDK 内置 DID 专用 WebView runtime
-- 默认 `DidResolver`：通过内置 DID runtime 做链上 DID 解析
-- 默认 `DidStore`：SDK 内置 Room 存储
-- `DidAvatarCredentialSource`：头像候选来源，供 SDK 组装 credential
-- `DidAvatarResolver`：VC 到展示用 NFT 数据的补全器
+- 默认 `IDidBridge`：SDK 内置 DID 专用 WebView runtime
+- 默认 `IDidResolver`：通过内置 DID runtime 做链上 DID 解析
+- 默认 `IDidStore`：SDK 内置 Room 存储
+- `IDidAvatarCredentialSource`：头像候选来源，供 SDK 组装 credential
+- `IDidAvatarResolver`：VC 到展示用 NFT 数据的补全器
 
 ### 3.2 常用能力一览（`DidSdk`）
 
@@ -116,12 +116,12 @@ object DidModule {
     @Provides fun provideDidAvatarCredentialSource(
         swtcNftRepository: SwtcNftRepository,
         evmTokenRepository: EvmTokenRepository
-    ): DidAvatarCredentialSource =
+    ): IDidAvatarCredentialSource =
         AppDidAvatarCredentialSource(swtcNftRepository, evmTokenRepository)
     @Provides fun provideDidSdk(
         @ApplicationContext context: Context,
-        avatarResolver: DidAvatarResolver,
-        avatarCredentialSource: DidAvatarCredentialSource
+        avatarResolver: IDidAvatarResolver,
+        avatarCredentialSource: IDidAvatarCredentialSource
     ): DidSdk =
         DidSdk.create(
             context = context,
@@ -138,7 +138,7 @@ object DidModule {
 - 不需要 app 再额外初始化 DID 专用 bridge
 - SDK 内部已经保证 WebView 创建发生在主线程
 
-如果你自己替换 `DidBridge` 实现，仍然需要满足：
+如果你自己替换 `IDidBridge` 实现，仍然需要满足：
 - 后台线程可调用
 - WebView 创建必须发生在主线程
 

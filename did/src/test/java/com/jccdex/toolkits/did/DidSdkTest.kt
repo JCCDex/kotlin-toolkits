@@ -6,9 +6,9 @@ import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.Nft
 import com.jccdex.toolkits.did.port.DidAvatarAsset
-import com.jccdex.toolkits.did.port.DidAvatarCredentialSource
-import com.jccdex.toolkits.did.port.DidAvatarResolver
-import com.jccdex.toolkits.did.port.DidBridge
+import com.jccdex.toolkits.did.port.IDidAvatarCredentialSource
+import com.jccdex.toolkits.did.port.IDidAvatarResolver
+import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.util.ChecksumUtils
@@ -27,10 +27,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class DidSdkTest {
-    private val bridge = mockk<DidBridge>(relaxed = true)
+    private val bridge = mockk<IDidBridge>(relaxed = true)
     private val coreService = mockk<DidCoreService>(relaxed = true)
-    private val avatarResolver = mockk<DidAvatarResolver>(relaxed = true)
-    private val avatarCredentialSource = mockk<DidAvatarCredentialSource>(relaxed = true)
+    private val avatarResolver = mockk<IDidAvatarResolver>(relaxed = true)
+    private val avatarCredentialSource = mockk<IDidAvatarCredentialSource>(relaxed = true)
 
     private val sdk = DidSdk(bridge, coreService, avatarResolver, avatarCredentialSource)
 
