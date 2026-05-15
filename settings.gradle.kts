@@ -23,4 +23,5 @@ rootProject.name = "kotlin-toolkits"
 include(":vault")
 include(":webview-bridge")
 include(":did")
+include(":nft")
 include(":wallet")

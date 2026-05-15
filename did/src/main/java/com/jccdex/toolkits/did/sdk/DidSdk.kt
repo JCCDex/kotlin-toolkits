@@ -25,6 +25,10 @@ import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
 import com.jccdex.toolkits.did.storage.room.RoomDidStore
 import com.jccdex.toolkits.did.store.IDidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
+import com.jccdex.toolkits.nft.NftSdk
+import com.jccdex.toolkits.nft.model.AvatarCandidate
+import com.jccdex.toolkits.nft.model.Nft as NftSdkNft
+import com.jccdex.toolkits.nft.model.WalletAccount as NftWalletAccount
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -42,6 +46,7 @@ class DidSdk internal constructor(
     private val core: DidCoreService,
     private val avatarResolver: IDidAvatarResolver? = null,
     private val avatarCredentialSource: IDidAvatarCredentialSource? = null,
+    private val nftSdk: NftSdk? = null,
 ) {
     fun toDid(wallet: WalletAccount?): String {
         if (wallet == null) return ""
@@ -107,6 +112,12 @@ class DidSdk internal constructor(
                     }
                 }
 
+                nft?.let {
+                    if (!it.hasLocal && it.uri.isNotBlank()) {
+                        nftSdk?.fetchAndCacheNftMeta(it.contract, it.tokenId, it.uri)
+                    }
+                }
+
                 ProfileVC(
                     nickname = profile?.nickname ?: "",
                     bio = "",
@@ -121,6 +132,7 @@ class DidSdk internal constructor(
 
     suspend fun generateSwtcNft(vc: String): Nft? {
         avatarResolver?.resolveSwtcAvatar(vc)?.let { return it }
+        nftSdk?.resolveSwtcAvatar(vc)?.let { return it.toDidNft() }
         return buildSwtcNft(vc)
     }
 
@@ -143,6 +155,7 @@ class DidSdk internal constructor(
 
     suspend fun generateEthrNft(vc: String): Nft? {
         avatarResolver?.resolveEthrAvatar(vc)?.let { return it }
+        nftSdk?.resolveEthrAvatar(vc)?.let { return it.toDidNft() }
         return buildEthrNft(vc)
     }
 
@@ -150,8 +163,11 @@ class DidSdk internal constructor(
         val ownerDid = toDid(account)
         if (ownerDid.isBlank()) return emptyList()
 
-        val source = avatarCredentialSource ?: return emptyList()
-        return source.getAvatarCandidates(account).map { asset ->
+        val sourceCandidates =
+            avatarCredentialSource?.getAvatarCandidates(account)
+                ?: nftSdk?.getAvatarCandidates(account.toNftAccount())?.map { it.toDidAvatarAsset() }
+                ?: emptyList()
+        return sourceCandidates.map { asset ->
             buildAvatarCredential(ownerDid, asset)
         }
     }
@@ -702,11 +718,13 @@ class DidSdk internal constructor(
             val runtime = AndroidDidWebRuntime(context)
             val store = RoomDidStore(DidRoomDatabase.getInstance(context, databaseName).didDao())
             val core = DidCoreService(store, runtime)
+            val nftSdk = NftSdk.create(context)
             return DidSdk(
                 bridge = runtime,
                 core = core,
                 avatarResolver = avatarResolver,
-                avatarCredentialSource = avatarCredentialSource
+                avatarCredentialSource = avatarCredentialSource,
+                nftSdk = nftSdk
             )
         }
 
@@ -722,8 +740,52 @@ class DidSdk internal constructor(
                 bridge = bridge,
                 core = core,
                 avatarResolver = avatarResolver,
-                avatarCredentialSource = avatarCredentialSource
+                avatarCredentialSource = avatarCredentialSource,
+                nftSdk = null
             )
         }
     }
+
+    private fun NftSdkNft.toDidNft(): Nft =
+        Nft(
+            contract = contract,
+            tokenId = tokenId,
+            name = name,
+            uri = uri,
+            image = image,
+            hasLocal = hasLocal,
+            issuanceDate = issuanceDate,
+            chainId = chainId
+        )
+
+    private fun AvatarCandidate.toDidAvatarAsset(): DidAvatarAsset =
+        DidAvatarAsset(
+            image = image,
+            name = name,
+            contract = contract,
+            tokenId = tokenId,
+            issuer = issuer,
+            tokenName = tokenName,
+            chainId = chainId,
+            isSwtc = isSwtc
+        )
+
+    private fun com.jccdex.toolkits.did.model.WalletAccount.toNftAccount(): NftWalletAccount =
+        NftWalletAccount(
+            id = id,
+            address = address,
+            chain =
+                when (chain) {
+                    ChainType.ETH -> com.jccdex.toolkits.nft.model.ChainType.ETH
+                    ChainType.BSC -> com.jccdex.toolkits.nft.model.ChainType.BSC
+                    ChainType.POLYGON -> com.jccdex.toolkits.nft.model.ChainType.POLYGON
+                    ChainType.ARB1 -> com.jccdex.toolkits.nft.model.ChainType.ARB1
+                    ChainType.BASE -> com.jccdex.toolkits.nft.model.ChainType.BASE
+                    ChainType.SWTC -> com.jccdex.toolkits.nft.model.ChainType.SWTC
+                    ChainType.MOAC -> com.jccdex.toolkits.nft.model.ChainType.MOAC
+                },
+            isHD = isHD,
+            parentId = parentId,
+            publicKey = publicKey
+        )
 }
