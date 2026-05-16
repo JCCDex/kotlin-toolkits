@@ -2,6 +2,7 @@ package com.jccdex.toolkits.nft
 
 import android.content.Context
 import com.jccdex.toolkits.nft.model.AvatarCandidate
+import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.WalletAccount
 import com.jccdex.toolkits.nft.storage.room.NftStore
@@ -28,11 +29,13 @@ class NftSdk internal constructor(
     companion object {
         fun create(
             context: Context,
-            databaseName: String = NftRoomDatabase.DEFAULT_DATABASE_NAME
-        ): NftSdk = NftSdk(NftStore.getInstance(context, databaseName))
+            databaseName: String = NftRoomDatabase.DEFAULT_DATABASE_NAME,
+            ethTokenUriResolver: EthTokenUriResolver? = null
+        ): NftSdk = NftSdk(NftStore.getInstance(context, databaseName, ethTokenUriResolver))
 
         fun create(
-            nftDao: NftDao
-        ): NftSdk = NftSdk(NftStore(nftDao))
+            nftDao: NftDao,
+            ethTokenUriResolver: EthTokenUriResolver? = null
+        ): NftSdk = NftSdk(NftStore(nftDao, ethTokenUriResolver))
     }
 }

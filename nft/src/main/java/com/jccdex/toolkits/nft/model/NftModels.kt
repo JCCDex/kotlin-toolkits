@@ -46,3 +46,11 @@ data class AvatarCandidate(
     val chainId: Long?,
     val isSwtc: Boolean
 )
+
+interface EthTokenUriResolver {
+    suspend fun resolveEthrTokenUri(
+        contract: String,
+        tokenId: String,
+        chainId: Long
+    ): String?
+}

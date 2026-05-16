@@ -46,7 +46,7 @@ class DidSdk internal constructor(
     private val core: DidCoreService,
     private val avatarResolver: IDidAvatarResolver? = null,
     private val avatarCredentialSource: IDidAvatarCredentialSource? = null,
-    private val nftSdk: NftSdk? = null,
+        private val nftSdk: NftSdk? = null,
 ) {
     fun toDid(wallet: WalletAccount?): String {
         if (wallet == null) return ""
@@ -713,12 +713,13 @@ class DidSdk internal constructor(
             context: Context,
             avatarResolver: IDidAvatarResolver? = null,
             avatarCredentialSource: IDidAvatarCredentialSource? = null,
-            databaseName: String = DidRoomDatabase.DEFAULT_DATABASE_NAME
+            databaseName: String = DidRoomDatabase.DEFAULT_DATABASE_NAME,
+            ethTokenUriResolver: com.jccdex.toolkits.nft.model.EthTokenUriResolver? = null
         ): DidSdk {
             val runtime = AndroidDidWebRuntime(context)
             val store = RoomDidStore(DidRoomDatabase.getInstance(context, databaseName).didDao())
             val core = DidCoreService(store, runtime)
-            val nftSdk = NftSdk.create(context)
+            val nftSdk = NftSdk.create(context, ethTokenUriResolver = ethTokenUriResolver)
             return DidSdk(
                 bridge = runtime,
                 core = core,

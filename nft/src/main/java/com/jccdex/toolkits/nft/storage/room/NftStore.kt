@@ -3,6 +3,7 @@ package com.jccdex.toolkits.nft.storage.room
 import android.content.Context
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.ChainType
+import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.WalletAccount
 import com.google.gson.JsonObject
@@ -16,7 +17,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class NftStore(
-    private val dao: NftDao
+    private val dao: NftDao,
+    private val ethTokenUriResolver: EthTokenUriResolver? = null
 ) {
     fun observeSwtcNfts(ownerAddress: String): Flow<List<SwtcNftEntity>> = dao.observeSwtcNfts(ownerAddress)
 
@@ -163,13 +165,18 @@ class NftStore(
         val issuance = parseString(vc, "$.issuanceDate").orEmpty()
         if (tokenId.isBlank() || contract.isBlank()) return null
 
+        val resolvedTokenUri =
+            sanitizeUri(
+                ethTokenUriResolver
+                    ?.resolveEthrTokenUri(contract, tokenId, chainId)
+            )
         val localMeta = getNftMeta(contract, tokenId)
         if (localMeta != null) {
             return Nft(
                 contract = contract,
                 tokenId = tokenId,
                 name = localMeta.name.orEmpty(),
-                uri = localMeta.tokenUri.orEmpty(),
+                uri = sanitizeUri(localMeta.tokenUri).ifBlank { resolvedTokenUri },
                 image = localMeta.image,
                 hasLocal = true,
                 issuanceDate = issuance,
@@ -182,7 +189,7 @@ class NftStore(
             contract = contract,
             tokenId = tokenId,
             name = evmItem?.title.orEmpty(),
-            uri = evmItem?.metadata.orEmpty(),
+            uri = resolvedTokenUri.ifBlank { sanitizeUri(evmItem?.metadata) },
             image = evmItem?.imageUrl,
             hasLocal = evmItem?.imageUrl != null,
             issuanceDate = issuance,
@@ -246,6 +253,17 @@ class NftStore(
         }
     }
 
+    private fun sanitizeUri(uri: String?): String =
+        uri
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.looksLikeJson() }
+            .orEmpty()
+
+    private fun String.looksLikeJson(): Boolean {
+        val trimmed = trim()
+        return trimmed.startsWith("{") || trimmed.startsWith("[")
+    }
+
     private suspend fun fetchJson(url: String): JsonObject? =
         withContext(Dispatchers.IO) {
             val connection = (URL(url).openConnection() as HttpURLConnection)
@@ -267,7 +285,12 @@ class NftStore(
     companion object {
         fun getInstance(
             context: Context,
-            databaseName: String = NftRoomDatabase.DEFAULT_DATABASE_NAME
-        ): NftStore = NftStore(NftRoomDatabase.getInstance(context, databaseName).nftDao())
+            databaseName: String = NftRoomDatabase.DEFAULT_DATABASE_NAME,
+            ethTokenUriResolver: EthTokenUriResolver? = null
+        ): NftStore =
+            NftStore(
+                NftRoomDatabase.getInstance(context, databaseName).nftDao(),
+                ethTokenUriResolver
+            )
     }
 }
