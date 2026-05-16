@@ -22,7 +22,7 @@ class WebviewBridgeEngineTest {
 
     @Test
     fun initialize_setsContextAndConfig() {
-        val config = WebviewBridgeConfig(bridgeUrl = "file:///android_asset/custom.html")
+        val config = WebviewBridgeConfig(bridgeUrl = androidAssetUrl("custom.html"))
 
         WebviewBridgeEngine.initialize(appContext, config)
 

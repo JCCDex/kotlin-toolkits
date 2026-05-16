@@ -1,23 +1,18 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
-    alias(libs.plugins.ksp)
 }
 
 group = "com.jccdex.toolkits"
 version = "0.1.0"
 
 android {
-    namespace = "com.jccdex.toolkits.did"
+    namespace = "com.jccdex.toolkits.wallet"
     compileSdk = 36
 
     defaultConfig {
-        minSdk = 30
+        minSdk = 26
         consumerProguardFiles("consumer-rules.pro")
-    }
-
-    testOptions {
-        unitTests.isIncludeAndroidResources = true
     }
 
     compileOptions {
@@ -35,14 +30,8 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.gson)
-    implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.bcprov.jdk15to18)
-    implementation(libs.room.runtime)
-    implementation(libs.room.ktx)
-    implementation(project(":nft"))
     implementation(project(":webview-bridge"))
-    ksp(libs.room.compiler)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
@@ -51,6 +40,5 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.assertj.core)
-    testImplementation(libs.mockwebserver)
     testImplementation(kotlin("test"))
 }

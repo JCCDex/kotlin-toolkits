@@ -1,6 +1,5 @@
 package com.jccdex.toolkits.did
 
-import android.app.Application
 import android.util.Log
 import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
@@ -22,16 +21,13 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [35], application = Application::class)
 class DidSdkTest {
     private val bridge = mockk<IDidBridge>(relaxed = true)
     private val coreService = mockk<DidCoreService>(relaxed = true)
     private val avatarResolver = mockk<IDidAvatarResolver>(relaxed = true)
     private val avatarCredentialSource = mockk<IDidAvatarCredentialSource>(relaxed = true)
-
     private val sdk = DidSdk(bridge, coreService, avatarResolver, avatarCredentialSource)
 
     @Test
@@ -82,6 +78,27 @@ class DidSdkTest {
         coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns expected
 
         assertEquals(expected, sdk.generateSwtcNft("""{"credentialSubject":{}}"""))
+    }
+
+    @Test
+    fun `generateSwtcNft falls back to built-in builder when resolver is missing`() = runTest {
+        val sdkWithoutResolver = DidSdk(bridge, coreService)
+
+        val result = sdkWithoutResolver.generateSwtcNft(
+            """
+            {
+              "credentialSubject": {
+                "tokenId": "1",
+                "nftIssuer": "issuer",
+                "tokenName": "avatar"
+              },
+              "issuanceDate": "2025-01-01T00:00:00Z"
+            }
+            """.trimIndent()
+        )
+
+        assertEquals("issuer", result?.contract)
+        assertEquals("1", result?.tokenId)
     }
 
     @Test

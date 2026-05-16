@@ -8,7 +8,7 @@ group = "com.jccdex.toolkits"
 version = "0.1.0"
 
 android {
-    namespace = "com.jccdex.toolkits.did"
+    namespace = "com.jccdex.toolkits.nft"
     compileSdk = 36
 
     defaultConfig {
@@ -37,11 +37,8 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.bcprov.jdk15to18)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    implementation(project(":nft"))
-    implementation(project(":webview-bridge"))
     ksp(libs.room.compiler)
 
     testImplementation(libs.junit)

@@ -5,6 +5,7 @@ import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+import com.jccdex.toolkits.webviewbridge.androidAssetUrl
 import org.json.JSONObject
 
 internal class AndroidDidWebRuntime(
@@ -14,7 +15,7 @@ internal class AndroidDidWebRuntime(
         WebviewBridgeClient().apply {
             initialize(
                 context = context.applicationContext,
-                config = WebviewBridgeConfig(bridgeUrl = DEFAULT_BRIDGE_URL)
+                config = WebviewBridgeConfig(bridgeUrl = androidAssetUrl("did-bridge.html"))
             )
             start()
         }
@@ -35,8 +36,4 @@ internal class AndroidDidWebRuntime(
             method = "didResolve",
             params = JSONObject().apply { put("did", did) }
         )
-
-    companion object {
-        private const val DEFAULT_BRIDGE_URL = "file:///android_asset/did-bridge.html"
-    }
 }
