@@ -50,4 +50,36 @@ class JsPromiseGatewayTest {
         assertThat(payload).isEqualTo("""{"result":"ok"}""")
         assertThat(JsPromiseGateway.callbackMap).isEmpty()
     }
+
+    @Test
+    fun resetReady_clearsState() {
+        JsPromiseGateway.onBridgeReady()
+        JsPromiseGateway.resetReady()
+
+        assertThat(JsPromiseGateway.isReady()).isFalse
+        assertThat(JsPromiseGateway.callbackMap).isEmpty()
+    }
+
+    @Test
+    fun clearAll_resetsReadyAndCallbacks() {
+        JsPromiseGateway.callbackMap["id-1"] = {}
+        JsPromiseGateway.onBridgeReady()
+
+        JsPromiseGateway.clearAll()
+
+        assertThat(JsPromiseGateway.isReady()).isFalse
+        assertThat(JsPromiseGateway.callbackMap).isEmpty()
+    }
+
+    @Test
+    fun addReadyListener_returnsRemoverThatRemovesPendingListener() {
+        var called = false
+        JsPromiseGateway.resetReady()
+
+        val remover = JsPromiseGateway.addReadyListener { called = true }
+        remover()
+        JsPromiseGateway.onBridgeReady()
+
+        assertThat(called).isFalse
+    }
 }

@@ -29,4 +29,11 @@ class WebviewBridgeClientTest {
         assertThat(client.isInitializedForTest()).isTrue
         assertThat(client.currentConfigForTest()).isEqualTo(config)
     }
+
+    @Test
+    fun defaultConfig_usesBridgeHtml() {
+        client.initialize(appContext)
+
+        assertThat(client.currentConfigForTest()).isEqualTo(WebviewBridgeConfig())
+    }
 }

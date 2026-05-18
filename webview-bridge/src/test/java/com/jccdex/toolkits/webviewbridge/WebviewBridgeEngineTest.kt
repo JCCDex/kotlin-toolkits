@@ -29,4 +29,28 @@ class WebviewBridgeEngineTest {
         assertThat(WebviewBridgeEngine.isInitializedForTest()).isTrue
         assertThat(WebviewBridgeEngine.currentConfigForTest()).isEqualTo(config)
     }
+
+    @Test
+    fun start_and_destroy_are_safe_after_initialize() {
+        WebviewBridgeEngine.initialize(appContext)
+
+        WebviewBridgeEngine.start()
+        WebviewBridgeEngine.destroy()
+
+        assertThat(WebviewBridgeEngine.isInitializedForTest()).isTrue
+    }
+
+    @Test
+    fun androidAssetUrl_buildsFileUrl() {
+        assertThat(androidAssetUrl("wallet-bridge.html")).isEqualTo("file:///android_asset/wallet-bridge.html")
+    }
+
+    @Test
+    fun config_defaults_areStable() {
+        val config = WebviewBridgeConfig()
+
+        assertThat(config.bridgeUrl).isEqualTo("file:///android_asset/bridge.html")
+        assertThat(config.jsInterfaceName).isEqualTo("JSBridge")
+        assertThat(config.consoleTag).isEqualTo("WebViewConsole")
+    }
 }
