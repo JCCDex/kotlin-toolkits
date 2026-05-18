@@ -5,6 +5,7 @@ kotlin toolkits for jccdex
 ## Modules
 
 - `:core`: Shared domain models (`ChainType`, `Path`, `WalletAccount`) for wallet / account / did / nft.
+- `:account`: Wallet account metadata storage (`ccdao_accounts.db`). Main API: `AccountSdk`.
 - `:vault`: Encrypted key vault (DataStore + Protobuf + Tink). Main API: `VaultRepository`.
 - `:webview-bridge`: Shared hidden-WebView runtime and JS asset host. Main API: `WebviewBridgeEngine`.
 - `:did`: DID feature SDK (core service, default Android Room storage, avatar credential assembly). Main API: `DidSdk`.
@@ -28,6 +29,7 @@ See `:did` detailed documentation:
 
 ```bash
 ./gradlew :core:testDebugUnitTest
+./gradlew :account:testDebugUnitTest
 ./gradlew :vault:testDebugUnitTest
 ./gradlew :webview-bridge:testDebugUnitTest
 ./gradlew :did:testDebugUnitTest

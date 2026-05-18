@@ -42,7 +42,7 @@ val jacocoClassExcludes =
         "**/META-INF/**",
     )
 
-val coverageModules = listOf("core", "vault", "webview-bridge", "did", "nft", "wallet")
+val coverageModules = listOf("core", "account", "vault", "webview-bridge", "did", "nft", "wallet")
 val coverageModuleProjects = coverageModules.map { project(":$it") }
 
 coverageModules.forEach { moduleName ->
