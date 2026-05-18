@@ -78,6 +78,18 @@ class RoomDidStoreTest {
     }
 
     @Test
+    fun `observe emits mapped entity for did`() = runTest {
+        database.didDao().insert(
+            DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L)
+        )
+
+        val observed = store.observe("did:test:1").first()
+
+        assertThat(observed?.doc).isEqualTo("""{"version":1}""")
+        assertThat(store.observe("did:missing").first()).isNull()
+    }
+
+    @Test
     fun `delete removes all rows for did`() = runTest {
         database.didDao().insert(DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L))
         database.didDao().insert(DidRoomEntity(id = 2L, did = "did:test:1", doc = """{"version":2}""", updatedAt = 200L))

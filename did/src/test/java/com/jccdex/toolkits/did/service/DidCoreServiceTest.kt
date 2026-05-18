@@ -149,6 +149,60 @@ class DidCoreServiceTest {
     }
 
     @Test
+    fun `resolveAndSaveDid upserts when local is missing and chain has document`() = runTest {
+        val store = MemoryDidStore()
+        val chainDoc = """{"did":"did:test:1","updated":"2025-02-01T00:00:00Z"}"""
+        val service = DidCoreService(store, StaticResolver(chainDoc))
+
+        val result = service.resolveAndSaveDid("did:test:1")
+
+        assertEquals(chainDoc, result)
+        assertEquals(chainDoc, store.get("did:test:1")?.doc)
+    }
+
+    @Test
+    fun `resolveAndSaveDid keeps local when pending delete timestamp matches chain`() = runTest {
+        val store = MemoryDidStore()
+        val updated = "2025-01-01T00:00:00Z"
+        val local = """{"updated":"$updated"}"""
+        val service = DidCoreService(store, StaticResolver("""{"updated":"$updated"}"""))
+        store.upsert(DidEntity(did = "did:test:1", doc = local))
+        service.deleteDidDocument("did:test:1", local)
+        store.upsert(DidEntity(did = "did:test:1", doc = local))
+
+        val result = service.resolveAndSaveDid("did:test:1")
+
+        assertEquals(local, result)
+    }
+
+    @Test
+    fun `resolveAndSaveDid returns null when resolver throws`() = runTest {
+        val store = MemoryDidStore()
+        val service =
+            DidCoreService(
+                store,
+                object : IDidResolver {
+                    override suspend fun resolve(did: String): String = error("network down")
+                }
+            )
+        store.upsert(DidEntity(did = "did:test:1", doc = """{"did":"did:test:1"}"""))
+
+        assertNull(service.resolveAndSaveDid("did:test:1"))
+    }
+
+    @Test
+    fun `resolveAndSaveDid clears pending nickname when chain matches`() = runTest {
+        val store = MemoryDidStore()
+        val doc = """{"service":[{"type":"Profile","serviceEndpoint":{"nickname":"bob"}}],"updated":"2025-01-01T00:00:00Z"}"""
+        val service = DidCoreService(store, StaticResolver(doc))
+
+        service.saveNewNicknameDid("did:test:1", doc)
+        val result = service.resolveAndSaveDid("did:test:1")
+
+        assertEquals(doc, result)
+    }
+
+    @Test
     fun `saveNewAvatarDid tracks pending avatar update`() = runTest {
         val store = MemoryDidStore()
         val resolver = StaticResolver("""{"service":[{"type":"Profile","serviceEndpoint":{"preferredAvatar":"cred-1"}}]}""")

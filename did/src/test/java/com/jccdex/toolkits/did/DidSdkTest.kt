@@ -5,7 +5,6 @@ import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.DidEntity
 import com.jccdex.toolkits.did.model.Did
-import com.jccdex.toolkits.did.model.DidWriteResult
 import com.jccdex.toolkits.did.model.GenerateBase58PKResult
 import com.jccdex.toolkits.did.model.Nft
 import com.jccdex.toolkits.did.model.ProfileVC
@@ -701,5 +700,160 @@ class DidSdkTest {
         assertThat(store.get(did)?.doc).contains("\"preferredAvatar\":\"new-cred\"")
         assertThat(store.get(did)?.doc).contains("\"new-cred\"")
         assertThat(store.get(did)?.doc).contains("\"old-cred\"")
+    }
+
+    @Test
+    fun `getProfile reads services array alias`() {
+        val profile =
+            sdk.getProfile(
+                """
+                {
+                  "services":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}]
+                }
+                """.trimIndent()
+            )
+
+        assertEquals("alice", profile?.nickname)
+        assertEquals("cred-1", profile?.preferredAvatar)
+    }
+
+    @Test
+    fun `toDid formats moac as evm did`() {
+        val account =
+            WalletAccount(
+                address = "0x1234567890abcdef1234567890abcdef12345678",
+                chain = ChainType.MOAC,
+                publicKey = "pub"
+            )
+
+        assertEquals("did:ethr:0x1234567890AbcdEF1234567890aBcdef12345678", sdk.toDid(account))
+    }
+
+    @Test
+    fun `generateProfileVC returns swtc nft`() = runTest {
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}],
+                          "credentials":[{"id":"cred-1","credentialSubject":{"tokenId":"1","nftIssuer":"issuer","tokenName":"avatar"},"issuanceDate":"2025-01-01T00:00:00Z"}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val swtcNft =
+            Nft(
+                contract = "issuer",
+                tokenId = "1",
+                name = "avatar",
+                uri = "",
+                image = null,
+                hasLocal = true,
+                issuanceDate = "2025-01-01T00:00:00Z",
+                chainId = null
+            )
+        coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns swtcNft
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.generateProfileVC("did:swtc:jcccc")
+
+        assertEquals("alice", result?.nickname)
+        assertEquals(swtcNft, result?.nft)
+    }
+
+    @Test
+    fun `generateProfileVC returns null when document is missing`() = runTest {
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) = null
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        assertNull(localSdk.generateProfileVC("did:ethr:0x123"))
+    }
+
+    @Test
+    fun `generateProfileVC fetches remote nft metadata when needed`() = runTest {
+        val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+        coEvery { nftSdk.fetchAndCacheNftMeta(any(), any(), any()) } returns null
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}],
+                          "credentials":[{"id":"cred-1","credentialSubject":{"tokenId":"1","contractAddress":"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd","chainId":1},"issuanceDate":"2025-01-01T00:00:00Z"}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val remoteNft =
+            Nft(
+                contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                tokenId = "1",
+                name = "avatar",
+                uri = "https://example.com/meta.json",
+                image = null,
+                hasLocal = false,
+                issuanceDate = "2025-01-01T00:00:00Z",
+                chainId = 1L
+            )
+        coEvery { avatarResolver.resolveEthrAvatar(any()) } returns remoteNft
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource, nftSdk)
+
+        localSdk.generateProfileVC("did:ethr:0x1234567890abcdef1234567890abcdef12345678")
+
+        coVerify { nftSdk.fetchAndCacheNftMeta(remoteNft.contract, remoteNft.tokenId, remoteNft.uri) }
+    }
+
+    @Test
+    fun `publishDidDelete returns false when bridge rejects publish`() = runTest {
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+            PublishDidResult(code = "1", message = "failed")
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) = DidEntity(did = did, doc = """{"updated":"2025-01-01T00:00:00Z"}""")
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        assertThat(localSdk.publishDidDelete("secret", "did:ethr:0x123")).isFalse()
+    }
+
+    @Test
+    fun `uploadInitialDidDoc returns false when publish fails`() = runTest {
+        coEvery { bridge.call("generateDidDoc", any()) } returns """{"did":"did:ethr:0x123"}"""
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+            PublishDidResult(code = "9", message = "failed")
+        coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
+            GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) = null
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        assertThat(localSdk.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")).isFalse()
     }
 }
