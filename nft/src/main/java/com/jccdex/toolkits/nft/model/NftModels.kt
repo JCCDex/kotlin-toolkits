@@ -1,29 +1,8 @@
 package com.jccdex.toolkits.nft.model
 
-import java.util.UUID
+typealias ChainType = com.jccdex.toolkits.core.model.ChainType
 
-enum class ChainType(
-    val evmChainId: Long? = null
-) {
-    ETH(1L),
-    BSC(56L),
-    POLYGON(137L),
-    ARB1(42161L),
-    BASE(8453L),
-    SWTC,
-    MOAC(99L);
-
-    fun isEvmChain(): Boolean = this != SWTC
-}
-
-data class WalletAccount(
-    val id: String = UUID.randomUUID().toString(),
-    val address: String,
-    val chain: ChainType = ChainType.ETH,
-    val isHD: Boolean = false,
-    val parentId: String? = null,
-    val publicKey: String = ""
-)
+typealias WalletAccount = com.jccdex.toolkits.core.model.WalletAccount
 
 data class Nft(
     val contract: String,
