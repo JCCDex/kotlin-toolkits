@@ -461,4 +461,26 @@ class VaultRepositoryTest {
                 }
             assert(ex2.message?.contains("Password is wrong") == true)
         }
+
+    @Test
+    fun test_07_listAccounts_and_hasPassword() =
+        runTest {
+            val password = "vault-pass".toByteArray()
+            val address = "0xabc123".uppercase()
+            val privateKey = "deadbeef".toByteArray()
+
+            vault.initializePassword(password)
+            vault.importPrivateKey(address, privateKey)
+
+            Assertions.assertThat(vault.hasPassword()).isTrue()
+            Assertions.assertThat(vault.listAccounts()).contains(address)
+        }
+
+    @Test
+    fun test_08_singleton_instance_is_cached() {
+        val first = VaultRepository.get(appContext)
+        val second = VaultRepository.get(appContext)
+
+        Assertions.assertThat(first).isSameAs(second)
+    }
 }

@@ -20,6 +20,8 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "kotlin-toolkits"
+include(":core")
+include(":account")
 include(":vault")
 include(":webview-bridge")
 include(":did")

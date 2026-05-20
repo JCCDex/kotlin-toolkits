@@ -1,32 +1,8 @@
 package com.jccdex.toolkits.did.model
 
-import java.util.UUID
+typealias ChainType = com.jccdex.toolkits.core.model.ChainType
 
-enum class ChainType(
-    val label: String,
-    val nativeSymbol: String,
-    val evmChainId: Long? = null
-) {
-    ETH("Ethereum", "ETH", 1L),
-    BSC("Binance", "BNB", 56L),
-    POLYGON("Polygon", "POL", 137L),
-    ARB1("Arbitrum", "ETH", 42161L),
-    BASE("Base", "ETH", 8453L),
-    SWTC("SWTC", "SWTC"),
-    MOAC("MOAC", "MOAC", 99L);
-
-    fun isEvmChain(): Boolean = this != SWTC
-}
-
-data class WalletAccount(
-    val id: String = UUID.randomUUID().toString(),
-    val address: String,
-    val chain: ChainType = ChainType.ETH,
-    val name: String = "",
-    val isHD: Boolean = false,
-    val parentId: String? = null,
-    val publicKey: String = ""
-)
+typealias WalletAccount = com.jccdex.toolkits.core.model.WalletAccount
 
 data class GenerateBase58PKResult(
     val type: String,

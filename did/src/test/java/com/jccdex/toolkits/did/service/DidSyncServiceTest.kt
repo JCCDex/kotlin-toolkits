@@ -33,6 +33,28 @@ class DidSyncServiceTest {
     }
 
     @Test
+    fun `syncAccounts returns empty result for empty input`() = runTest {
+        val result = service.syncAccounts(emptyList())
+
+        assertThat(result.entries).isEmpty()
+        assertThat(result.addressesLower).isEmpty()
+    }
+
+    @Test
+    fun `syncAccounts skips blank did and resolve failures`() = runTest {
+        val blankDidAccount = WalletAccount(address = "", chain = ChainType.ETH, publicKey = "pub")
+        val failingAccount = WalletAccount(address = "0xdef", chain = ChainType.ETH, publicKey = "pub")
+
+        every { didSdk.toDid(blankDidAccount) } returns ""
+        every { didSdk.toDid(failingAccount) } returns "did:ethr:0xdef"
+        coEvery { didSdk.resolveDid("did:ethr:0xdef") } throws IllegalStateException("offline")
+
+        val result = service.syncAccounts(listOf(blankDidAccount, failingAccount))
+
+        assertThat(result.entries).isEmpty()
+    }
+
+    @Test
     fun `syncAccounts skips empty resolve results`() = runTest {
         val account = WalletAccount(address = "jswtc", chain = ChainType.SWTC, publicKey = "pub")
 

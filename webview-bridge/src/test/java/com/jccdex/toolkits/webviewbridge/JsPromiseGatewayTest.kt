@@ -50,4 +50,75 @@ class JsPromiseGatewayTest {
         assertThat(payload).isEqualTo("""{"result":"ok"}""")
         assertThat(JsPromiseGateway.callbackMap).isEmpty()
     }
+
+    @Test
+    fun onPromiseResult_ignoresUnknownId() {
+        JsPromiseGateway.onPromiseResult("missing", """{"result":"ok"}""")
+
+        assertThat(JsPromiseGateway.callbackMap).isEmpty()
+    }
+
+    @Test
+    fun onBridgeReady_continuesWhenListenerThrows() {
+        var called = false
+        JsPromiseGateway.resetReady()
+        JsPromiseGateway.addReadyListener {
+            throw IllegalStateException("boom")
+        }
+        JsPromiseGateway.addReadyListener {
+            called = true
+        }
+
+        JsPromiseGateway.onBridgeReady()
+
+        assertThat(called).isTrue
+        assertThat(JsPromiseGateway.isReady()).isTrue
+    }
+
+    @Test
+    fun addReadyListener_swallowsExceptionWhenAlreadyReady() {
+        JsPromiseGateway.resetReady()
+        JsPromiseGateway.onBridgeReady()
+
+        var called = false
+        JsPromiseGateway.addReadyListener {
+            called = true
+            throw IllegalStateException("boom")
+        }
+
+        assertThat(called).isTrue
+        assertThat(JsPromiseGateway.isReady()).isTrue
+    }
+
+    @Test
+    fun resetReady_clearsState() {
+        JsPromiseGateway.onBridgeReady()
+        JsPromiseGateway.resetReady()
+
+        assertThat(JsPromiseGateway.isReady()).isFalse
+        assertThat(JsPromiseGateway.callbackMap).isEmpty()
+    }
+
+    @Test
+    fun clearAll_resetsReadyAndCallbacks() {
+        JsPromiseGateway.callbackMap["id-1"] = {}
+        JsPromiseGateway.onBridgeReady()
+
+        JsPromiseGateway.clearAll()
+
+        assertThat(JsPromiseGateway.isReady()).isFalse
+        assertThat(JsPromiseGateway.callbackMap).isEmpty()
+    }
+
+    @Test
+    fun addReadyListener_returnsRemoverThatRemovesPendingListener() {
+        var called = false
+        JsPromiseGateway.resetReady()
+
+        val remover = JsPromiseGateway.addReadyListener { called = true }
+        remover()
+        JsPromiseGateway.onBridgeReady()
+
+        assertThat(called).isFalse
+    }
 }

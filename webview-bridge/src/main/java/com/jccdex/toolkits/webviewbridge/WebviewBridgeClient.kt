@@ -22,13 +22,24 @@ import kotlin.coroutines.resumeWithException
 
 class WebviewBridgeClient {
     private val gateway: IPromiseGateway
+    private val webViewFactory: (Context) -> WebView
 
     constructor() {
         gateway = PromiseGatewayImpl()
+        webViewFactory = { context -> WebView(context) }
     }
 
     internal constructor(gateway: IPromiseGateway) {
         this.gateway = gateway
+        this.webViewFactory = { context -> WebView(context) }
+    }
+
+    internal constructor(
+        gateway: IPromiseGateway,
+        webViewFactory: (Context) -> WebView
+    ) {
+        this.gateway = gateway
+        this.webViewFactory = webViewFactory
     }
 
     private var appContext: Context? = null
@@ -62,7 +73,7 @@ class WebviewBridgeClient {
         gateway.resetReady()
 
         val webView =
-            WebView(ctx).also { w ->
+            webViewFactory(ctx).also { w ->
                 w.settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true

@@ -1,0 +1,29 @@
+package com.jccdex.toolkits.account.orchestrator
+
+sealed class AccountOperationError {
+    data object AddressAlreadyExists : AccountOperationError()
+
+    data object AccountAlreadyExists : AccountOperationError()
+
+    data object RootAccountNotFound : AccountOperationError()
+
+    data object PasswordRequired : AccountOperationError()
+
+    data class WrongPassword(
+        val message: String = "Password is wrong"
+    ) : AccountOperationError()
+
+    data class Failure(
+        val cause: Throwable
+    ) : AccountOperationError()
+}
+
+sealed class AccountOperationResult<out T> {
+    data class Success<T>(
+        val value: T
+    ) : AccountOperationResult<T>()
+
+    data class Error(
+        val error: AccountOperationError
+    ) : AccountOperationResult<Nothing>()
+}

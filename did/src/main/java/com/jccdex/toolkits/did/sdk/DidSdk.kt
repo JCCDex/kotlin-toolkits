@@ -28,7 +28,6 @@ import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.Nft as NftSdkNft
-import com.jccdex.toolkits.nft.model.WalletAccount as NftWalletAccount
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -165,7 +164,7 @@ class DidSdk internal constructor(
 
         val sourceCandidates =
             avatarCredentialSource?.getAvatarCandidates(account)
-                ?: nftSdk?.getAvatarCandidates(account.toNftAccount())?.map { it.toDidAvatarAsset() }
+                ?: nftSdk?.getAvatarCandidates(account)?.map { it.toDidAvatarAsset() }
                 ?: emptyList()
         return sourceCandidates.map { asset ->
             buildAvatarCredential(ownerDid, asset)
@@ -771,22 +770,4 @@ class DidSdk internal constructor(
             isSwtc = isSwtc
         )
 
-    private fun com.jccdex.toolkits.did.model.WalletAccount.toNftAccount(): NftWalletAccount =
-        NftWalletAccount(
-            id = id,
-            address = address,
-            chain =
-                when (chain) {
-                    ChainType.ETH -> com.jccdex.toolkits.nft.model.ChainType.ETH
-                    ChainType.BSC -> com.jccdex.toolkits.nft.model.ChainType.BSC
-                    ChainType.POLYGON -> com.jccdex.toolkits.nft.model.ChainType.POLYGON
-                    ChainType.ARB1 -> com.jccdex.toolkits.nft.model.ChainType.ARB1
-                    ChainType.BASE -> com.jccdex.toolkits.nft.model.ChainType.BASE
-                    ChainType.SWTC -> com.jccdex.toolkits.nft.model.ChainType.SWTC
-                    ChainType.MOAC -> com.jccdex.toolkits.nft.model.ChainType.MOAC
-                },
-            isHD = isHD,
-            parentId = parentId,
-            publicKey = publicKey
-        )
 }
