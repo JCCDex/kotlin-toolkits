@@ -367,6 +367,97 @@ class NftStoreTest {
     }
 
     @Test
+    fun getInstance_returnsRoomBackedStore() =
+        runTest {
+            val store = NftStore.getInstance(context)
+            val tokenId = "inst-${System.nanoTime()}"
+
+            store.upsertNftMeta(
+                NftMetaEntity(
+                    contract = "issuer",
+                    tokenId = tokenId,
+                    name = "from-instance",
+                    image = null,
+                    tokenUri = null,
+                    fullContent = null
+                )
+            )
+
+            assertThat(store.getNftMeta("issuer", tokenId)?.name).isEqualTo("from-instance")
+        }
+
+    @Test
+    fun resolveSwtcAvatar_returnsNullForInvalidCredential() =
+        runTest {
+            val database = newDatabase()
+            try {
+                val store = NftStore(database.nftDao())
+
+                assertThat(store.resolveSwtcAvatar("""{"credentialSubject":{}}""")).isNull()
+                assertThat(
+                    store.resolveSwtcAvatar(
+                        """{"credentialSubject":{"tokenId":"1"},"issuanceDate":"2025-01-01T00:00:00Z"}"""
+                    )
+                ).isNull()
+            } finally {
+                database.close()
+            }
+        }
+
+    @Test
+    fun resolveEthrAvatar_filtersJsonLookingResolverUri() =
+        runTest {
+            val database = newDatabase()
+            val resolver = mockk<EthTokenUriResolver>()
+            val store = NftStore(database.nftDao(), resolver)
+
+            try {
+                val vc =
+                    """{"credentialSubject":{"tokenId":"1","contractAddress":"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd","chainId":1},"issuanceDate":"2025-01-01T00:00:00Z"}"""
+                coEvery {
+                    resolver.resolveEthrTokenUri("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd", "1", 1L)
+                } returns """{"not":"a-uri"}"""
+                database.nftDao().upsertNftMeta(
+                    NftMetaEntity(
+                        contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                        tokenId = "1",
+                        name = "cached",
+                        image = "https://example.com/avatar.png",
+                        tokenUri = """{"not":"a-uri"}""",
+                        fullContent = """{"name":"cached"}"""
+                    )
+                )
+
+                val result = store.resolveEthrAvatar(vc)
+
+                assertThat(result?.uri).isEmpty()
+                assertThat(result?.image).isEqualTo("https://example.com/avatar.png")
+                assertThat(result?.hasLocal).isTrue()
+            } finally {
+                database.close()
+            }
+        }
+
+    @Test
+    fun fetchAndCacheNftMeta_returnsNullForBlankResponseBody() =
+        runTest {
+            val database = newDatabase()
+            val store = NftStore(database.nftDao())
+            val server = MockWebServer()
+            server.start()
+
+            try {
+                server.enqueue(MockResponse().setResponseCode(200).setBody("   "))
+                val uri = server.url("/empty.json").toString()
+
+                assertThat(store.fetchAndCacheNftMeta("issuer", "blank", uri)).isNull()
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
     fun fetchAndCacheNftMeta_insertsUpdatesAndHandlesFailures() = runTest {
         val database = newDatabase()
         val store = NftStore(database.nftDao())

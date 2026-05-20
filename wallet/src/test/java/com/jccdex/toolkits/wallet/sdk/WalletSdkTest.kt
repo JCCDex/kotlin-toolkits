@@ -8,6 +8,7 @@ import com.jccdex.toolkits.wallet.model.SubWallet
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Test
@@ -54,6 +55,24 @@ class WalletSdkTest {
         WalletSdk.start()
 
         assertThat(bridge.started).isTrue()
+    }
+
+    @Test
+    fun start_throwsWhenNotInitialized() {
+        WalletSdk.destroy()
+
+        assertThatThrownBy { WalletSdk.start() }
+            .isInstanceOf(IllegalStateException::class.java)
+            .hasMessageContaining("WalletSdk is not initialized")
+    }
+
+    @Test
+    fun callJsMethodAs_throwsWhenNotInitialized() {
+        assertThatThrownBy {
+            runTest {
+                WalletSdk.callJsMethodAs("ping", null, String::class.java)
+            }
+        }.isInstanceOf(IllegalStateException::class.java)
     }
 
     @Test

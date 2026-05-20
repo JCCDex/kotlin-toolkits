@@ -31,9 +31,13 @@ class CryptoHelpersTest {
         val context = ApplicationProvider.getApplicationContext<Application>()
 
         val params = Argon2ParamChooser.choose(context)
+        val largeHeapParams = Argon2ParamChooser.choose(context, preferLargeHeap = true)
 
         assertThat(params.iterations).isGreaterThan(0)
         assertThat(params.memoryKiB).isGreaterThan(0)
+        assertThat(largeHeapParams.iterations).isGreaterThan(0)
+        assertThat(largeHeapParams.memoryKiB).isGreaterThan(0)
+        assertThat(largeHeapParams.parallelism).isEqualTo(1)
     }
 
     @Test

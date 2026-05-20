@@ -1,13 +1,17 @@
 package com.jccdex.toolkits.webviewbridge
 
 import android.app.Application
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import kotlinx.coroutines.test.runTest
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -31,9 +35,40 @@ class WebviewBridgeClientTest {
     }
 
     @Test
+    fun isInitializedForTest_isFalse_beforeInitialize() {
+        assertThat(client.isInitializedForTest()).isFalse
+    }
+
+    @Test
     fun defaultConfig_usesBridgeHtml() {
         client.initialize(appContext)
 
         assertThat(client.currentConfigForTest()).isEqualTo(WebviewBridgeConfig())
+    }
+
+    @Test
+    fun callJsMethod_throwsWhenNotInitialized() {
+        assertThatThrownBy {
+            runTest {
+                client.callJsMethod("ping")
+            }
+        }.isInstanceOf(IllegalStateException::class.java)
+    }
+
+    @Test
+    fun callJsMethodAs_throwsWhenNotInitialized() {
+        assertThatThrownBy {
+            runTest {
+                client.callJsMethodAs("ping", null, String::class.java)
+            }
+        }.isInstanceOf(IllegalStateException::class.java)
+    }
+
+    @Test
+    fun start_throwsWhenNotInitialized() {
+        assertThatThrownBy {
+            client.start()
+            shadowOf(Looper.getMainLooper()).idle()
+        }.isInstanceOf(IllegalStateException::class.java)
     }
 }

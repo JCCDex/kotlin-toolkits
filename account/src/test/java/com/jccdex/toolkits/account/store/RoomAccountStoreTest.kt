@@ -4,10 +4,13 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.account.AccountTestDatabase
 import com.jccdex.toolkits.account.AccountTestFixtures
+import android.database.sqlite.SQLiteConstraintException
 import com.jccdex.toolkits.core.model.ChainType
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -58,6 +61,17 @@ class RoomAccountStoreTest {
         }
 
     @Test
+    fun addAccounts_persistsMultipleAccounts() =
+        runTest {
+            val first = AccountTestFixtures.traditional(id = "batch-1", address = "0xbatch1")
+            val second = AccountTestFixtures.traditional(id = "batch-2", address = "0xbatch2")
+
+            store.addAccounts(listOf(first, second))
+
+            assertThat(store.accounts.first().map { it.id }).containsExactlyInAnyOrder("batch-1", "batch-2")
+        }
+
+    @Test
     fun findByAddress_andChain() =
         runTest {
             val eth =
@@ -77,6 +91,20 @@ class RoomAccountStoreTest {
 
             assertThat(store.findByAddress(eth.address, ChainType.ETH)?.id).isEqualTo("eth-id")
             assertThat(store.findByAddress(eth.address, ChainType.BSC)?.id).isEqualTo("bsc-id")
+        }
+
+    @Test
+    fun findById_and_findByAddress() =
+        runTest {
+            val account =
+                AccountTestFixtures.traditional(
+                    id = "lookup-id",
+                    address = "0xAbC123"
+                )
+            store.addAccount(account)
+
+            assertThat(store.findById("lookup-id")?.address).isEqualTo("0xAbC123")
+            assertThat(store.findByAddress("0xabc123")?.id).isEqualTo("lookup-id")
         }
 
     @Test
@@ -105,6 +133,22 @@ class RoomAccountStoreTest {
             val updated = store.findById(account.id)
             assertThat(updated?.name).isEqualTo("new")
             assertThat(updated?.publicKey).isEqualTo("pub-new")
+        }
+
+    @Test
+    fun updateAccountNameByAddress_andParentId() =
+        runTest {
+            val parent = AccountTestFixtures.hdRoot(id = "parent-id")
+            val child = AccountTestFixtures.traditional(id = "child-id", address = "0xchild")
+            store.addAccount(parent)
+            store.addAccount(child)
+
+            store.updateAccountNameByAddress("0xCHILD", "child-renamed")
+            store.updateParentId(child.id, parent.id)
+
+            val updatedChild = store.findById(child.id)
+            assertThat(updatedChild?.name).isEqualTo("child-renamed")
+            assertThat(updatedChild?.parentId).isEqualTo(parent.id)
         }
 
     @Test
@@ -231,6 +275,56 @@ class RoomAccountStoreTest {
             assertThat(store.findNonRootAccount("jRoot", ChainType.SWTC)).isNull()
             assertThat(store.findNonRootAccount("0xsub", ChainType.ETH)?.id).isEqualTo(sub.id)
             assertThat(store.findNonRootAccount("0xtrad", ChainType.ETH)?.id).isEqualTo(trad.id)
+        }
+
+    @Test
+    fun addAccount_duplicateId_throwsConstraintException() =
+        runTest {
+            val account = AccountTestFixtures.traditional(id = "dup-store-id")
+            store.addAccount(account)
+
+            assertThatThrownBy {
+                runBlocking {
+                    store.addAccount(account.copy(name = "duplicate"))
+                }
+            }.isInstanceOf(SQLiteConstraintException::class.java)
+        }
+
+    @Test
+    fun currentAccount_isNull_whenNeverSet() =
+        runTest {
+            store.addAccount(AccountTestFixtures.traditional(id = "no-current"))
+
+            assertThat(store.currentAccount.first()).isNull()
+        }
+
+    @Test
+    fun currentAccount_isNull_whenCurrentPointsToMissingAccount() =
+        runTest {
+            val account = AccountTestFixtures.traditional(id = "orphan-current")
+            store.addAccount(account)
+            store.setCurrentAccount(account.id)
+
+            testDb.accountDao.deleteById(account.id)
+
+            assertThat(store.currentAccount.first()).isNull()
+            assertThat(store.getCurrentAccountId()).isEqualTo(account.id)
+        }
+
+    @Test
+    fun removeAccount_preservesCurrentWhenDeletingOther() =
+        runTest {
+            val current = AccountTestFixtures.traditional(id = "keep-current", address = "0xkeep")
+            val other = AccountTestFixtures.traditional(id = "drop-other", address = "0xdrop")
+            store.addAccount(current)
+            store.addAccount(other)
+            store.setCurrentAccount(current.id)
+
+            store.removeAccount(other.id)
+
+            assertThat(store.currentAccount.first()?.id).isEqualTo(current.id)
+            assertThat(store.getCurrentAccountId()).isEqualTo(current.id)
+            assertThat(store.findById(other.id)).isNull()
         }
 
     @Test

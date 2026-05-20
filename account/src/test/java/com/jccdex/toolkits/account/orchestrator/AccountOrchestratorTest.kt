@@ -18,6 +18,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -122,6 +123,24 @@ class AccountOrchestratorTest {
         }
 
     @Test
+    fun importSingleAccount_withSecret_importsVaultSecret() =
+        runTest {
+            coEvery { vault.importSecret(any(), any(), any()) } returns Unit
+
+            val derived =
+                TraditionalDeriveResult(
+                    address = "0xsecret",
+                    keypair = Keypair("priv", "pub"),
+                    secret = "top-secret"
+                )
+
+            val result = orchestrator.importSingleAccount(derived, ChainType.ETH, "secret", false, null)
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify { vault.importSecret("0xsecret", any(), any()) }
+        }
+
+    @Test
     fun importHdWallet_requiresPasswordWhenVaultEmpty() =
         runTest {
             coEvery { vault.hasPassword() } returns false
@@ -138,6 +157,28 @@ class AccountOrchestratorTest {
             val result = orchestrator.importHdWallet(hd, "wallet", password = null)
 
             assertThat(result).isEqualTo(AccountOperationResult.Error(AccountOperationError.PasswordRequired))
+        }
+
+    @Test
+    fun importHdWallet_initializesPasswordWhenVaultEmpty() =
+        runTest {
+            coEvery { vault.hasPassword() } returns false
+            coEvery { vault.initializePassword(any()) } returns Unit
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootInit",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+
+            val result = orchestrator.importHdWallet(hd, "wallet", "pass".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify { vault.initializePassword(any()) }
         }
 
     @Test
@@ -196,6 +237,46 @@ class AccountOrchestratorTest {
             assertThat(testDb.store.findByAddress("0xethchild", ChainType.ETH)).isNotNull
             coVerify { vault.importMnemonic("jRootNew", any(), any(), "m/44'/0'/0'/0/0", "english") }
             coVerify { vault.importPrivateKeys(any()) }
+        }
+
+    @Test
+    fun importHdWallet_skipsDuplicateChildren() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+            val importedKeys = slot<MutableList<com.jccdex.toolkits.vault.model.VaultPrivateKeyImport>>()
+
+            val existingSub =
+                SubWallet(
+                    chain = ChainType.ETH.bip44Code,
+                    address = "0xdup",
+                    path = WalletPath(ChainType.ETH.bip44Code, index = 0),
+                    keypair = Keypair("pk-dup", "pub-dup")
+                )
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootDup",
+                    language = "english",
+                    keypair = Keypair("root-priv", "root-pub"),
+                    accounts = listOf(existingSub)
+                )
+
+            testDb.store.addAccount(
+                AccountTestFixtures.hdSub(
+                    id = "existing-id",
+                    parentId = "other-root",
+                    address = "0xdup"
+                )
+            )
+
+            val result = orchestrator.importHdWallet(hd, "My HD", "pass".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            assertThat(testDb.store.findByAddress("0xdup", ChainType.ETH)).isNotNull
+            coVerify { vault.importPrivateKeys(capture(importedKeys)) }
+            assertThat(importedKeys.captured).hasSize(1)
         }
 
     @Test
@@ -275,6 +356,17 @@ class AccountOrchestratorTest {
 
             assertThat(result).isEqualTo(AccountOperationResult.Error(AccountOperationError.WrongPassword()))
             assertThat(testDb.store.findById(account.id)).isNotNull
+        }
+
+    @Test
+    fun removeAccount_returnsSuccessWhenAccountMissing() =
+        runTest {
+            coEvery { vault.verifyPassword(any()) } returns true
+
+            val result = orchestrator.removeAccount("missing-id", "pass".toByteArray())
+
+            assertThat(result).isEqualTo(AccountOperationResult.Success(Unit))
+            coVerify(exactly = 0) { vault.removeAddress(any(), any()) }
         }
 
     @Test
@@ -385,6 +477,24 @@ class AccountOrchestratorTest {
             val result = orchestrator.deriveSubAccount(ChainType.ETH, "missing")
 
             assertThat(result).isEqualTo(AccountOperationResult.Error(AccountOperationError.RootAccountNotFound))
+        }
+
+    @Test
+    fun deriveSubAccount_returnsFailureWhenWalletSdkThrows() =
+        runTest {
+            mockkObject(WalletSdk)
+            val root = AccountTestFixtures.hdRoot(id = "root-id", address = "jRootFail")
+            testDb.store.addAccount(root)
+            coEvery { vault.getMnemonicInternal("jRootFail") } returns "mnemonic".toByteArray()
+            coEvery {
+                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 1)
+            } throws IllegalStateException("boom")
+
+            val result = orchestrator.deriveSubAccount(ChainType.ETH, root.id)
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            val error = (result as AccountOperationResult.Error).error
+            assertThat(error).isInstanceOf(AccountOperationError.Failure::class.java)
         }
 
     @Test

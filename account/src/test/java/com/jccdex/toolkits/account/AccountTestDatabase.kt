@@ -8,10 +8,14 @@ import com.jccdex.toolkits.account.store.RoomAccountStore
 internal class AccountTestDatabase(
     private val database: AccountRoomDatabase
 ) {
+    val accountDao get() = database.accountDao()
+
+    val currentAccountDao get() = database.currentAccountDao()
+
     val store: RoomAccountStore =
         RoomAccountStore(
-            accountDao = database.accountDao(),
-            currentAccountDao = database.currentAccountDao()
+            accountDao = accountDao,
+            currentAccountDao = currentAccountDao
         )
 
     fun close() {

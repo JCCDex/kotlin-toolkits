@@ -30,5 +30,6 @@ android {
 dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.assertj.core)
+    testImplementation(libs.robolectric)
     testImplementation(kotlin("test"))
 }

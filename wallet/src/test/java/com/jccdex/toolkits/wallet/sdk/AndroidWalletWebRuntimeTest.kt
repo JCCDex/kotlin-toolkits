@@ -2,6 +2,11 @@ package com.jccdex.toolkits.wallet.sdk
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
+import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+import io.mockk.coEvery
+import io.mockk.mockk
+import io.mockk.verify
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONObject
 import org.junit.Test
@@ -13,6 +18,28 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = Application::class)
 class AndroidWalletWebRuntimeTest {
     private val context = ApplicationProvider.getApplicationContext<Application>()
+
+    @Test
+    fun realBridgeClientDelegatesToWebviewBridgeClient() =
+        kotlinx.coroutines.test.runTest {
+            val bridgeClient = mockk<WebviewBridgeClient>(relaxed = true)
+            coEvery {
+                bridgeClient.callJsMethod(method = "ping", params = any(), timeoutMs = any(), readyWaitMs = any())
+            } returns "pong"
+
+            val client = RealWalletWebBridgeClient(bridgeClient)
+            client.initialize(context, WebviewBridgeConfig(bridgeUrl = "file:///android_asset/wallet-bridge.html"))
+            client.start()
+
+            val result = client.call("ping", null)
+
+            client.destroy()
+
+            verify { bridgeClient.initialize(context.applicationContext, any()) }
+            verify { bridgeClient.start() }
+            verify { bridgeClient.destroy() }
+            assertThat(result).isEqualTo("pong")
+        }
 
     @Test
     fun delegatesToWebviewBridgeClient() = kotlinx.coroutines.test.runTest {

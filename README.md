@@ -20,6 +20,7 @@ See `:did` detailed documentation:
 
 ## SDK Docs
 
+- `kotlin-toolkits/account/README.zh-CN.md`
 - `kotlin-toolkits/vault/README.zh-CN.md`
 - `kotlin-toolkits/webview-bridge/README.zh-CN.md`
 - `kotlin-toolkits/nft/README.zh-CN.md`
