@@ -5,6 +5,8 @@ import androidx.datastore.core.Serializer
 import com.jccdex.toolkits.vault.Vault
 import com.jccdex.toolkits.vault.security.AESCrypto
 import com.jccdex.toolkits.vault.security.TinkManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
 
@@ -28,6 +30,8 @@ class VaultSerializer(
             TinkManager
                 .get(appContext)
                 .encrypt(t.toByteArray(), AESCrypto.VAULT_V1_AAD.toByteArray())
-        output.write(ct)
+	    withContext(Dispatchers.IO) {
+		    output.write(ct)
+	    }
     }
 }

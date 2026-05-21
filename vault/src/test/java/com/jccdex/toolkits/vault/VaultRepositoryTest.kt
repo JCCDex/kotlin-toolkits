@@ -483,4 +483,37 @@ class VaultRepositoryTest {
 
         Assertions.assertThat(first).isSameAs(second)
     }
+
+    @Test
+    fun test_09_biometricLifecycle() =
+        runTest {
+            Assertions.assertThat(vault.hasBiometric()).isFalse()
+
+            val beforeUpdate =
+                assertFailsWith<Error> {
+                    vault.getBiometric()
+                }
+            assert(beforeUpdate.message?.contains("Biometric cache is not exist") == true)
+
+            val iv = "bio-iv".toByteArray()
+            val ciphertext = "bio-ciphertext".toByteArray()
+            vault.updateBiometric(ciphertext = ciphertext, iv = iv)
+            verify(exactly = 1) { iv.wipe() }
+            verify(exactly = 1) { ciphertext.wipe() }
+            clearRecord()
+
+            Assertions.assertThat(vault.hasBiometric()).isTrue()
+            val biometric = vault.getBiometric()
+            Assertions.assertThat(biometric.iv.toByteArray()).isEqualTo("bio-iv".toByteArray())
+            Assertions.assertThat(biometric.ciphertext.toByteArray()).isEqualTo("bio-ciphertext".toByteArray())
+
+            vault.clearBiometric()
+            Assertions.assertThat(vault.hasBiometric()).isFalse()
+
+            val afterClear =
+                assertFailsWith<Error> {
+                    vault.getBiometric()
+                }
+            assert(afterClear.message?.contains("Biometric cache is not exist") == true)
+        }
 }

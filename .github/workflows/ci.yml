@@ -33,4 +33,10 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Run unit tests
-        run: ./gradlew :vault:testDebugUnitTest --no-daemon
+        run: |
+          ./gradlew :vault:testDebugUnitTest --no-daemon
+          ./gradlew :core:testDebugUnitTest --no-daemon
+          ./gradlew :account:testDebugUnitTest --no-daemon
+          ./gradlew :webview-bridge:testDebugUnitTest --no-daemon
+          ./gradlew :did:testDebugUnitTest --no-daemon
+          ./gradlew :wallet:testDebugUnitTest --no-daemon

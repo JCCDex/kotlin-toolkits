@@ -85,6 +85,47 @@ class VaultRepository private constructor(
         }
     }
 
+    suspend fun hasBiometric(): Boolean = vaultStore.data.first().hasBiometric()
+
+    suspend fun clearBiometric() = mutex.withLock {
+        vaultStore.updateData { vault ->
+            vault
+                .toBuilder()
+                .clearBiometric()
+                .build()
+        }
+    }
+
+    suspend fun getBiometric(): BiometricEntry {
+        if (!hasBiometric()) {
+            throw Error("Biometric cache is not exist")
+        }
+        return vaultStore.data.first().biometric
+    }
+
+    suspend fun updateBiometric(
+        ciphertext: ByteArray,
+        iv: ByteArray,
+    ) = mutex.withLock {
+        try {
+            vaultStore.updateData { vault ->
+                vault
+                    .toBuilder()
+                    .setBiometric(
+                        BiometricEntry
+                            .newBuilder()
+                            .setIv(ByteString.copyFrom(iv))
+                            .setCiphertext(ByteString.copyFrom(ciphertext))
+                            .build(),
+                    )
+                    .build()
+            }
+        } finally {
+            iv.wipe()
+            ciphertext.wipe()
+        }
+    }
+
     suspend fun hasPassword(): Boolean = vaultStore.data.first().hasPassword()
 
     suspend fun verifyPassword(password: ByteArray): Boolean {
