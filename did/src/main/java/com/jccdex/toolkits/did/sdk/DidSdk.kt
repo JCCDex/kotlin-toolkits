@@ -103,12 +103,7 @@ class DidSdk internal constructor(
                 if (profile != null) {
                     val vc = findCredentialById(credentials, profile.preferredAvatar)?.toString()
                     if (!vc.isNullOrBlank()) {
-                        nft =
-                            when {
-                                isSwtcDid(did) -> generateSwtcNft(vc)
-                                isEthrDid(did) -> generateEthrNft(vc)
-                                else -> null
-                            }
+                        nft = generateAvatarNft(vc)
                     }
                 }
 
@@ -129,6 +124,23 @@ class DidSdk internal constructor(
                 null
             }
         }
+
+    private suspend fun generateAvatarNft(vc: String): Nft? =
+        if (isSwtcAvatarVc(vc)) generateSwtcNft(vc) else generateEthrNft(vc)
+
+    /**
+     * Route avatar VC resolution by NFT standard / subject fields, not owner DID chain.
+     * Aligns with did_DApp `identity.vue` (`credentialSubject.standard`).
+     */
+    internal fun isSwtcAvatarVc(vc: String): Boolean {
+        when (readString(vc, "credentialSubject.standard")?.lowercase()) {
+            SWTC_NFT_STANDARD -> return true
+            EVM_NFT_STANDARD -> return false
+        }
+        val nftIssuer = readString(vc, "credentialSubject.nftIssuer").orEmpty()
+        val contractAddress = readString(vc, "credentialSubject.contractAddress").orEmpty()
+        return nftIssuer.isNotBlank() && contractAddress.isBlank()
+    }
 
     suspend fun generateSwtcNft(vc: String): Nft? {
         avatarResolver?.resolveSwtcAvatar(vc)?.let { return it }
@@ -730,6 +742,9 @@ class DidSdk internal constructor(
     }
 
     companion object {
+        private const val SWTC_NFT_STANDARD = "jingtumnft"
+        private const val EVM_NFT_STANDARD = "erc-721"
+
         fun create(
             context: Context,
             avatarResolver: IDidAvatarResolver? = null,

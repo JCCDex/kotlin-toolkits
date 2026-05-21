@@ -29,7 +29,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -813,6 +815,113 @@ class DidSdkTest {
 
         assertEquals("alice", result?.nickname)
         assertEquals(swtcNft, result?.nft)
+    }
+
+    @Test
+    fun `isSwtcAvatarVc detects standard and legacy subject fields`() {
+        val swtcVc =
+            """
+            {"credentialSubject":{"standard":"jingtumNFT","nftIssuer":"issuer","tokenId":"1"}}
+            """.trimIndent()
+        val evmVc =
+            """
+            {"credentialSubject":{"standard":"ERC-721","contractAddress":"0xabc","tokenId":"1","chainId":1}}
+            """.trimIndent()
+        val legacySwtcVc =
+            """
+            {"credentialSubject":{"nftIssuer":"issuer","tokenName":"avatar","tokenId":"1"}}
+            """.trimIndent()
+        val legacyEvmVc =
+            """
+            {"credentialSubject":{"contractAddress":"0xabc","tokenId":"1","chainId":1}}
+            """.trimIndent()
+
+        assertTrue(sdk.isSwtcAvatarVc(swtcVc))
+        assertFalse(sdk.isSwtcAvatarVc(evmVc))
+        assertTrue(sdk.isSwtcAvatarVc(legacySwtcVc))
+        assertFalse(sdk.isSwtcAvatarVc(legacyEvmVc))
+    }
+
+    @Test
+    fun `generateProfileVC resolves swtc avatar vc on ethr did`() = runTest {
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}],
+                          "credentials":[{"id":"cred-1","credentialSubject":{"standard":"jingtumNFT","tokenId":"1","nftIssuer":"issuer","tokenName":"avatar"},"issuanceDate":"2025-01-01T00:00:00Z"}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val swtcNft =
+            Nft(
+                contract = "issuer",
+                tokenId = "1",
+                name = "avatar",
+                uri = "",
+                image = "https://example.com/swtc-avatar.png",
+                hasLocal = true,
+                issuanceDate = "2025-01-01T00:00:00Z",
+                chainId = null
+            )
+        coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns swtcNft
+        coEvery { avatarResolver.resolveEthrAvatar(any()) } returns null
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.generateProfileVC("did:ethr:0x1234567890abcdef1234567890abcdef12345678")
+
+        assertEquals("https://example.com/swtc-avatar.png", result?.nft?.image)
+        coVerify(exactly = 1) { avatarResolver.resolveSwtcAvatar(any()) }
+        coVerify(exactly = 0) { avatarResolver.resolveEthrAvatar(any()) }
+    }
+
+    @Test
+    fun `generateProfileVC resolves ethr avatar vc on swtc did`() = runTest {
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}],
+                          "credentials":[{"id":"cred-1","credentialSubject":{"standard":"ERC-721","tokenId":"1","contractAddress":"0xabcdefabcdefabcdefabcdefabcdefabcdefabcd","chainId":1},"issuanceDate":"2025-01-01T00:00:00Z"}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val ethNft =
+            Nft(
+                contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                tokenId = "1",
+                name = "avatar",
+                uri = "",
+                image = "https://example.com/eth-avatar.png",
+                hasLocal = true,
+                issuanceDate = "2025-01-01T00:00:00Z",
+                chainId = 1L
+            )
+        coEvery { avatarResolver.resolveEthrAvatar(any()) } returns ethNft
+        coEvery { avatarResolver.resolveSwtcAvatar(any()) } returns null
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.generateProfileVC("did:swtc:jcccc")
+
+        assertEquals("https://example.com/eth-avatar.png", result?.nft?.image)
+        coVerify(exactly = 1) { avatarResolver.resolveEthrAvatar(any()) }
+        coVerify(exactly = 0) { avatarResolver.resolveSwtcAvatar(any()) }
     }
 
     @Test
