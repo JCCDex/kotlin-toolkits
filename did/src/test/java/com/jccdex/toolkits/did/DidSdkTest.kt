@@ -280,7 +280,7 @@ class DidSdkTest {
         assertEquals(
             listOf(
                 DidAvatarCredential(
-                    credentialId = "$ownerDid#nft-$checksumContract-1",
+                    credentialId = "$ownerDid#nft-$checksumContract-1-$ownerDid",
                     image = "https://example.com/avatar.png",
                     name = "avatar",
                     contract = checksumContract,
@@ -294,6 +294,51 @@ class DidSdkTest {
             ),
             result
         )
+    }
+
+    @Test
+    fun `buildAvatarCredentialId matches did_DApp generateVCId format`() {
+        val ownerDid = "did:ethr:0xOwner"
+        val granteeDid = "did:ethr:0xGrantee"
+        val contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+        val checksumContract = ChecksumUtils.toChecksumAddress(contract)
+        val evmId =
+            sdk.buildAvatarCredentialId(
+                ownerDid = ownerDid,
+                asset =
+                    DidAvatarAsset(
+                        image = null,
+                        name = "nft",
+                        contract = contract,
+                        tokenId = "tokenABC",
+                        issuer = null,
+                        tokenName = null,
+                        chainId = 1L,
+                        isSwtc = false
+                    ),
+                granteeDid = granteeDid
+            )
+        assertEquals("did:ethr:0xOwner#nft-$checksumContract-tokenABC-did:ethr:0xGrantee", evmId)
+
+        val swtcOwner = "did:swtc:jOwner"
+        val swtcGrantee = "did:swtc:jGrantee"
+        val swtcId =
+            sdk.buildAvatarCredentialId(
+                ownerDid = swtcOwner,
+                asset =
+                    DidAvatarAsset(
+                        image = null,
+                        name = "nft",
+                        contract = "jIssuer",
+                        tokenId = "tid1",
+                        issuer = "jIssuer",
+                        tokenName = "Golden Sands",
+                        chainId = null,
+                        isSwtc = true
+                    ),
+                granteeDid = swtcGrantee
+            )
+        assertEquals("did:swtc:jOwner#nft-GoldenSands-jIssuer-tid1-did:swtc:jGrantee", swtcId)
     }
 
     @Test
@@ -339,6 +384,7 @@ class DidSdkTest {
         val params = sdk.buildGenerateAvatarVcParams("secret", selectedAvatar.ownerDid, selectedAvatar)
         val subject = params.getJSONObject("subject")
 
+        assertEquals("did:swtc:jcccc", subject.getString("id"))
         assertEquals("did:swtc:jcccc", subject.getString("owner"))
         assertEquals(315, subject.getInt("chainId"))
         assertEquals("issuer", subject.getString("nftIssuer"))
@@ -366,7 +412,8 @@ class DidSdkTest {
         val subject = params.getJSONObject("subject")
         val checksumContract = ChecksumUtils.toChecksumAddress(selectedAvatar.contract!!)
 
-        assertEquals("0x1234567890AbcdEF1234567890aBcdef12345678", subject.getString("owner"))
+        assertEquals(selectedAvatar.ownerDid, subject.getString("id"))
+        assertEquals(selectedAvatar.ownerDid, subject.getString("owner"))
         assertEquals(1, subject.getInt("chainId"))
         assertEquals(checksumContract, subject.getString("contractAddress"))
         assertEquals("ERC-721", subject.getString("standard"))
@@ -406,7 +453,7 @@ class DidSdkTest {
         assertEquals("avatar", result.first().name)
         assertEquals(ownerDid, result.first().ownerDid)
         assertEquals(checksumContract, result.first().contract)
-        assertEquals("$ownerDid#nft-$checksumContract-1", result.first().credentialId)
+        assertEquals("$ownerDid#nft-$checksumContract-1-$ownerDid", result.first().credentialId)
     }
 
     @Test
@@ -481,7 +528,7 @@ class DidSdkTest {
         assertEquals(1, result.size)
         assertEquals("avatar", result.first().name)
         assertEquals(ownerDid, result.first().ownerDid)
-        assertEquals("$ownerDid#nft-TokenName-issuer-1", result.first().credentialId)
+        assertEquals("$ownerDid#nft-TokenName-issuer-1-$ownerDid", result.first().credentialId)
     }
 
     @Test
@@ -517,7 +564,7 @@ class DidSdkTest {
         val did = "did:ethr:0x1234567890AbcdEF1234567890aBcdef12345678"
         val selectedAvatar =
             DidAvatarCredential(
-                credentialId = "$did#nft-0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD-1",
+                credentialId = "$did#nft-0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD-1-$did",
                 image = null,
                 name = "avatar",
                 contract = "0xAbcdefabcdefABCDefAbcdefAbcdefabcdefABCD",

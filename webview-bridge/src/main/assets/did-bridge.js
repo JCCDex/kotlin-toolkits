@@ -79,9 +79,17 @@
       return { code: "0", message: "success" };
     },
 
-    didResolve(params) {
+    async didResolve(params) {
       const { did } = params;
-      return resolveDidRuntime(did).resolver.resolve(did);
+      const runtime = resolveDidRuntime(did);
+      try {
+        return await runtime.resolver.resolve(did);
+      } catch (e) {
+        if (runtime.resolver.noLink(e)) {
+          return null;
+        }
+        throw e;
+      }
     },
 
     didStat(params) {

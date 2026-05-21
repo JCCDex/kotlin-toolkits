@@ -25,6 +25,7 @@ import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
 import com.jccdex.toolkits.did.storage.room.RoomDidStore
 import com.jccdex.toolkits.did.store.IDidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
+import com.jccdex.toolkits.did.util.DidResolveUtils
 import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.Nft as NftSdkNft
@@ -490,13 +491,14 @@ class DidSdk internal constructor(
         }
 
     private fun buildAvatarSubject(
-        did: String,
-        selectedAvatar: DidAvatarCredential
+        ownerDid: String,
+        selectedAvatar: DidAvatarCredential,
+        granteeDid: String = ownerDid
     ): JSONObject {
         return if (selectedAvatar.isSwtc) {
             JSONObject().apply {
-                put("id", did)
-                put("owner", did)
+                put("id", granteeDid)
+                put("owner", ownerDid)
                 put("chainId", 315)
                 put("nftIssuer", selectedAvatar.issuer.orEmpty())
                 put("tokenName", selectedAvatar.tokenName.orEmpty())
@@ -505,11 +507,10 @@ class DidSdk internal constructor(
                 put("standard", "jingtumNFT")
             }
         } else {
-            val checksumOwner = runCatching { ChecksumUtils.toChecksumAddress(did.substringAfterLast(':')) }.getOrDefault("")
             val checksumContract = selectedAvatar.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
             JSONObject().apply {
-                put("id", did)
-                put("owner", checksumOwner)
+                put("id", granteeDid)
+                put("owner", ownerDid)
                 put("chainId", selectedAvatar.chainId ?: 1)
                 put("contractAddress", checksumContract)
                 put("tokenId", selectedAvatar.tokenId)
@@ -544,7 +545,9 @@ class DidSdk internal constructor(
                 )
             }.getOrNull()
 
-        if (!chainDoc.isNullOrBlank() && chainDoc != "{}") return chainDoc
+        if (!chainDoc.isNullOrBlank() && !DidResolveUtils.isMissingDidDocument(chainDoc)) {
+            return chainDoc
+        }
 
         return core.getDidDocument(did)?.doc
     }
@@ -671,14 +674,33 @@ class DidSdk internal constructor(
     private fun isSwtcDid(id: String): Boolean = id.startsWith("did:swtc")
     private fun isEthrDid(id: String): Boolean = id.startsWith("did:ethr")
 
+    /**
+     * Aligns with did_DApp `generateVCId`:
+     * - EVM: `{ownerDID}#nft-{contractAddress}-{tokenId}-{granteeDID}`
+     * - SWTC: `{ownerDID}#nft-{tokenName}-{nftIssuer}-{tokenId}-{granteeDID}`
+     */
+    internal fun buildAvatarCredentialId(
+        ownerDid: String,
+        asset: DidAvatarAsset,
+        granteeDid: String = ownerDid
+    ): String =
+        if (asset.isSwtc) {
+            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
+            "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}-$granteeDid"
+        } else {
+            val checksumContract =
+                asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
+            "$ownerDid#nft-$checksumContract-${asset.tokenId}-$granteeDid"
+        }
+
     private fun buildAvatarCredential(
         ownerDid: String,
         asset: DidAvatarAsset
     ): DidAvatarCredential {
+        val credentialId = buildAvatarCredentialId(ownerDid, asset)
         return if (asset.isSwtc) {
-            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
             DidAvatarCredential(
-                credentialId = "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}",
+                credentialId = credentialId,
                 image = asset.image,
                 name = asset.name,
                 contract = asset.issuer,
@@ -693,7 +715,7 @@ class DidSdk internal constructor(
             val checksumContract =
                 asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
             DidAvatarCredential(
-                credentialId = "$ownerDid#nft-$checksumContract-${asset.tokenId}",
+                credentialId = credentialId,
                 image = asset.image,
                 name = asset.name,
                 contract = checksumContract,

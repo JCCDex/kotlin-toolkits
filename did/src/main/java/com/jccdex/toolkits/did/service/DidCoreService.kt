@@ -2,6 +2,7 @@ package com.jccdex.toolkits.did.service
 
 import com.jccdex.toolkits.did.model.DidEntity
 import com.jccdex.toolkits.did.store.IDidStore
+import com.jccdex.toolkits.did.util.DidResolveUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -22,17 +23,12 @@ class DidCoreService(
 
     suspend fun resolveAndSaveDid(did: String): String? {
         return withContext(Dispatchers.IO) {
+            val localDoc = store.get(did)
             try {
                 val chainDoc = resolver.resolve(did)
-                val localDoc = store.get(did)
 
-                if (chainDoc == "{}") {
-                    if (pendingCreateDids.contains(did)) {
-                        pendingCreateDids.remove(did)
-                        return@withContext localDoc?.doc
-                    }
-                    store.delete(did)
-                    return@withContext null
+                if (DidResolveUtils.isMissingDidDocument(chainDoc)) {
+                    return@withContext handleMissingChainDocument(did, localDoc)
                 }
 
                 if (chainDoc.isNotBlank()) {
@@ -75,6 +71,18 @@ class DidCoreService(
             }
             return@withContext null
         }
+    }
+
+    private suspend fun handleMissingChainDocument(
+        did: String,
+        localDoc: DidEntity?
+    ): String? {
+        if (pendingCreateDids.contains(did)) {
+            pendingCreateDids.remove(did)
+            return localDoc?.doc
+        }
+        store.delete(did)
+        return null
     }
 
     suspend fun getDidDocument(did: String): DidEntity? = store.get(did)
