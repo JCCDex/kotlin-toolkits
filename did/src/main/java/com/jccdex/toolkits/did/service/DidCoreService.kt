@@ -113,6 +113,15 @@ class DidCoreService(
         saveDocumentWithPending(did, doc, PendingType.AVATAR)
     }
 
+    suspend fun saveDidDocument(
+        did: String,
+        doc: String
+    ) {
+        withContext(Dispatchers.IO) {
+            store.upsert(DidEntity(did = did, doc = doc, updatedAt = System.currentTimeMillis()))
+        }
+    }
+
     suspend fun saveNewNicknameDid(
         did: String,
         doc: String

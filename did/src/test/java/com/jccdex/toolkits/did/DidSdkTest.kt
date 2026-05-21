@@ -16,7 +16,13 @@ import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.service.IDidResolver
+import com.jccdex.toolkits.did.model.CredentialAuthorizationType
+import com.jccdex.toolkits.did.model.DidWriteResult
+import com.jccdex.toolkits.did.model.NftCredentialRestrictions
+import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
+import com.jccdex.toolkits.did.model.UsageRights
 import com.jccdex.toolkits.did.util.ChecksumUtils
+import com.jccdex.toolkits.did.util.DidCredentialHelper
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -34,6 +40,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.json.JSONObject
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
@@ -1011,5 +1018,284 @@ class DidSdkTest {
         val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
 
         assertThat(localSdk.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")).isFalse()
+    }
+
+    @Test
+    fun `readCredentials returns credential json list`() {
+        val doc =
+            """
+            {
+              "credentials":[
+                {"id":"cred-1","credentialSubject":{"tokenId":"1"}},
+                {"id":"cred-2","credentialSubject":{"tokenId":"2"}}
+              ]
+            }
+            """.trimIndent()
+
+        assertEquals(2, sdk.readCredentials(doc).size)
+        assertTrue(sdk.readCredentials(doc).first().contains("cred-1"))
+    }
+
+    @Test
+    fun `addCredentialToDid skips publish when credential already exists`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val existingCredId = "$did#nft-0xAbcdEFABcdEFabcdEfAbCdefabcdeFABcDEFabCD-1-$did"
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {"credentials":[{"id":"$existingCredId"}],"service":[]}
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+        val data =
+            UnifiedNftCredentialData(
+                type = CredentialAuthorizationType.SELF,
+                granteeDid = did,
+                ownerDid = did,
+                chainId = 1,
+                tokenId = "1",
+                standard = DidCredentialHelper.STANDARD_ERC721,
+                contractAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+            )
+
+        val result = localSdk.addCredentialToDid("secret", did, "", data)
+
+        assertTrue(result.success)
+        coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+    }
+
+    @Test
+    fun `addCredentialToDid publishes signed credential`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(did = did, doc = """{"credentials":[],"service":[]}""")
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.call("generateVC", any()) } returns """{"id":"cred-new","credentialSubject":{"tokenId":"1"}}"""
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns PublishDidResult(code = "0", message = "ok")
+        coEvery { bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java) } returns
+            com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+        val data =
+            UnifiedNftCredentialData(
+                type = CredentialAuthorizationType.OTHERS,
+                granteeDid = "did:swtc:jGrantee",
+                ownerDid = did,
+                chainId = 1,
+                tokenId = "1",
+                standard = DidCredentialHelper.STANDARD_ERC721,
+                contractAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                usageRights = listOf(UsageRights.AVATAR),
+                restrictions = NftCredentialRestrictions()
+            )
+
+        val result = localSdk.addCredentialToDid("secret", did, "", data)
+
+        assertTrue(result.success)
+        assertTrue(result.didDocument.orEmpty().contains("cred-new"))
+        coVerify { bridge.call("generateVC", any()) }
+    }
+
+    @Test
+    fun `deleteCredentialFromDid clears preferred avatar and publishes`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val credId = "cred-1"
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "credentials":[{"id":"$credId"}],
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"$credId"}}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns PublishDidResult(code = "0", message = "ok")
+        coEvery { bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java) } returns
+            com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.deleteCredentialFromDid("secret", did, "", credId)
+
+        assertTrue(result.success)
+        assertFalse(result.didDocument.orEmpty().contains("\"id\":\"$credId\""))
+        assertTrue(result.didDocument.orEmpty().contains("\"preferredAvatar\":\"\""))
+    }
+
+    @Test
+    fun `verifyCredential returns false for expired credential`() = runTest {
+        val expired =
+            """
+            {
+              "id":"did:ethr:0x123#nft-0xabc-1-did:ethr:0x123",
+              "type":["VerifiableCredential","NFTOwnership"],
+              "expirationDate":"2020-01-01T00:00:00Z"
+            }
+            """.trimIndent()
+
+        val result = sdk.verifyCredential(expired)
+
+        assertFalse(result.verified)
+        coVerify(exactly = 0) { bridge.call("verifyCredential", any()) }
+    }
+
+    @Test
+    fun `buildGenerateVcParams includes usage authorization context type`() {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val params =
+            sdk.buildGenerateVcParams(
+                privateKey = "secret",
+                ownerDid = did,
+                credentialData =
+                    UnifiedNftCredentialData(
+                        type = CredentialAuthorizationType.OTHERS,
+                        granteeDid = "did:swtc:jGrantee",
+                        ownerDid = did,
+                        chainId = 1,
+                        tokenId = "1",
+                        standard = DidCredentialHelper.STANDARD_ERC721,
+                        contractAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                        usageRights = listOf(UsageRights.AVATAR),
+                        restrictions = NftCredentialRestrictions()
+                    )
+            )
+
+        assertEquals(DidCredentialHelper.CONTEXT_TYPE_USAGE_AUTHORIZATION, params.getString("contextType"))
+        assertTrue(params.getJSONArray("types").toString().contains("NFTUsageAuthorization"))
+    }
+
+    @Test
+    fun `queryAndValidateVcid returns valid credential when found and verified`() = runTest {
+        val ownerDid = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val vcid = "$ownerDid#nft-0xabc-1-$ownerDid"
+        val credential =
+            """{"id":"$vcid","type":["VerifiableCredential","NFTOwnership"],"credentialSubject":{"id":"$ownerDid","owner":"$ownerDid","tokenId":"1"}}"""
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                if (did == ownerDid) DidEntity(did = did, doc = """{"credentials":[$credential]}""") else null
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.queryAndValidateVcid(vcid)
+
+        assertTrue(result.isValid)
+        assertEquals(vcid, JSONObject(result.credential.orEmpty()).optString("id"))
+    }
+
+    @Test
+    fun `queryAndValidateVcid returns invalid when credential missing`() = runTest {
+        val ownerDid = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        coEvery { bridge.call("didResolve", any()) } returns """{"credentials":[]}"""
+
+        val result = sdk.queryAndValidateVcid("$ownerDid#nft-0xmissing-1-$ownerDid")
+
+        assertFalse(result.isValid)
+        assertNull(result.credential)
+    }
+
+    @Test
+    fun `bindVcidToDid adds credential when not present`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val vcid = "$did#nft-0xabc-1-did:ethr:0xgrantee"
+        val credential = """{"id":"$vcid","type":["VerifiableCredential","NFTUsageAuthorization"]}"""
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) = DidEntity(did = did, doc = """{"credentials":[],"service":[]}""")
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns PublishDidResult(code = "0", message = "ok")
+        coEvery { bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java) } returns
+            com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.bindVcidToDid("secret", did, "", credential)
+
+        assertTrue(result.success)
+        assertTrue(result.didDocument.orEmpty().contains(vcid))
+    }
+
+    @Test
+    fun `bindVcidToDid replaces existing credential with same id`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val vcid = "$did#nft-0xabc-1-did:ethr:0xgrantee"
+        val oldCredential = """{"id":"$vcid","expirationDate":"2025-01-01T00:00:00Z"}"""
+        val newCredential = """{"id":"$vcid","expirationDate":"2027-01-01T00:00:00Z"}"""
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(did = did, doc = """{"credentials":[$oldCredential],"service":[]}""")
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns PublishDidResult(code = "0", message = "ok")
+        coEvery { bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java) } returns
+            com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.bindVcidToDid("secret", did, "", newCredential)
+
+        assertTrue(result.success)
+        assertTrue(result.didDocument.orEmpty().contains("2027-01-01T00:00:00Z"))
+        assertFalse(result.didDocument.orEmpty().contains("2025-01-01T00:00:00Z"))
+    }
+
+    @Test
+    fun `updatePreferredAvatar sets profile preferredAvatar without new vc`() = runTest {
+        val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+        val credId = "$did#nft-0xabc-1-$did"
+        val store = object : com.jccdex.toolkits.did.store.IDidStore {
+            override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+            override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+            override suspend fun get(did: String) =
+                DidEntity(
+                    did = did,
+                    doc =
+                        """
+                        {
+                          "credentials":[{"id":"$credId"}],
+                          "service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":""}}]
+                        }
+                        """.trimIndent()
+                )
+            override suspend fun upsert(entity: DidEntity) = Unit
+            override suspend fun delete(did: String) = Unit
+        }
+        coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns PublishDidResult(code = "0", message = "ok")
+        coEvery { bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java) } returns
+            com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+        val localSdk = DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
+
+        val result = localSdk.updatePreferredAvatar("secret", did, "", credId)
+
+        assertTrue(result.success)
+        assertTrue(result.didDocument.orEmpty().contains("\"preferredAvatar\":\"$credId\""))
+        coVerify(exactly = 0) { bridge.call("generateVC", any()) }
     }
 }

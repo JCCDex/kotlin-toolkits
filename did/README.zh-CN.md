@@ -1,6 +1,6 @@
 # DID SDK（`kotlin-toolkits/:did`）
 
-本 SDK 提供 DID 文档的**创建 / 更新 / 发布 / 解析 / 本地存储（Room）**能力。
+本 SDK 提供 DID 文档的**创建 / 更新 / 发布 / 解析 / 本地存储（Room）**能力，以及 **NFT 凭证（VC）签发、验签、删除与授权头像绑定**。
 
 默认 Android 接入下，SDK 已内置：
 - DID 专用 WebView JS Runtime
@@ -32,7 +32,7 @@
 
 ### 2.1 `IDidBridge`（必需）
 
-用于调用链侧/JS Runtime 的方法（例如：`didResolve`、`publishDid`、`generateVC` 等）。
+用于调用链侧/JS Runtime 的方法（例如：`didResolve`、`publishDid`、`generateVC`、`verifyCredential` 等）。
 
 ```kotlin
 interface IDidBridge {
@@ -98,14 +98,64 @@ val didSdk =
 
 ### 3.2 常用能力一览（`DidSdk`）
 
+#### DID 文档基础
+
 - **地址转 DID**：`toDid(walletAccount)`
-- **监听 / 读取本地文档**：`observeDidDocument(did)` / `getDidDocument(did)`
+- **监听 / 读取本地文档**：`observeDidDocument(did)` / `getDidDocument(did)` / `observeAllDidDocuments()`
 - **解析并落库**：`resolveDid(did)`
+- **读取 Profile**：`getProfile(doc)` / `nickname(doc)`
 - **创建并发布初始 DID 文档**：`uploadInitialDidDoc(privateKey, did, nickname)`
 - **更新昵称并发布**：`updateDidNickname(privateKey, did, nickname, currentDoc)`
-- **更新头像并发布**：`updateDidAvatar(privateKey, did, currentDoc, selectedAvatar)`
 - **发布删除**：`publishDidDelete(privateKey, did)`
-- **生成展示模型**：`generateDid(did)`、`generateProfileVC(did)`、`generateSwtcNft(vc)`、`generateEthrNft(vc)`
+
+#### 头像相关
+
+- **列出可选头像 NFT**：`getAvatarNftCredentials(account)`（依赖 `IDidAvatarCredentialSource`）
+- **更新头像（签发自有 NFTOwnership VC）**：`updateDidAvatar(privateKey, did, currentDoc, selectedAvatar)`
+  - 会调用 `generateVC` 生成新的 **NFTOwnership** 凭证并写入 DID 文档
+  - 适用于钱包持有的自有 NFT
+- **绑定已有 VC 为头像（不重新签发）**：`updatePreferredAvatar(privateKey, did, currentDoc, credentialId)`
+  - 仅更新 Profile 中的 `preferredAvatar`
+  - 适用于文档中已有的 **NFTUsageAuthorization** 等凭证 ID
+
+#### 展示模型
+
+- **生成 DID 元数据**：`generateDid(did)`
+- **生成 Profile + 头像展示**：`generateProfileVC(did)`
+  - 按 VC 内容（`jingtumNFT` / `ERC-721`）路由解析头像，而非按 DID 链类型
+  - 支持跨链头像（例如 ETH DID + SWTC NFT VC）
+- **从 VC 解析 NFT 展示**：`generateSwtcNft(vc)` / `generateEthrNft(vc)`
+
+#### NFT 凭证（VC）管理
+
+| API | 说明 |
+|-----|------|
+| `readCredentials(doc)` | 从 DID 文档 JSON 读取凭证列表（每项为 JSON 字符串） |
+| `addCredentialToDid(...)` | 签发并添加 NFTOwnership（self）或 NFTUsageAuthorization（others）VC，然后发布 |
+| `deleteCredentialFromDid(...)` | 从 DID 文档删除指定 VC；若该 VC 为当前头像则清空 `preferredAvatar` |
+| `verifyCredential(credentialJson)` | 验签；对 UsageAuthorization 会先检查是否已被撤销/变更 |
+| `checkGranteeCredentialUpdate(credentialJson)` | 检查被授权方 VC 是否在链上被删除、转授或修改到期日 |
+
+`addCredentialToDid` 使用 `UnifiedNftCredentialData` 描述 NFT 与授权信息，详见下文 **§8**。
+
+#### 授权头像绑定（VCID）
+
+被授权方通过 VCID 绑定他人授权的头像：
+
+| API | 说明 |
+|-----|------|
+| `queryAndValidateVcid(vcid)` | 从 VCID 解析 owner DID，在链上文档查找 VC 并验签，返回 `QueryVcidResult` |
+| `bindVcidToDid(...)` | 将校验通过的 VC 合并进当前 DID 文档（存在则更新，不存在则追加）并发布 |
+| `updatePreferredAvatar(...)` | 将 `preferredAvatar` 设为已有 VCID，不生成新 VC |
+
+典型流程（被授权方）：
+
+1. 从授权方处获得 VCID（格式如 `did:ethr:0xOwner#nft-0xContract-tokenId-did:ethr:0xGrantee`）
+2. `queryAndValidateVcid(vcid)` 校验 VC 有效，且 `credentialSubject.id` 为当前用户 DID
+3. `bindVcidToDid(...)` 把 VC 同步到本地 DID 文档
+4. `updatePreferredAvatar(..., credentialId = vcid)` 设为头像
+
+> **注意**：`updateDidAvatar` 与 `updatePreferredAvatar` 用途不同。前者为**自有 NFT 新签 VC**；后者为**绑定已有 VCID**。绑定授权头像应使用后者，而非 `updateDidAvatar`。
 
 ### 3.3 最小接入示例
 
@@ -179,3 +229,109 @@ val didSdk =
 ```bash
 ./gradlew :did:testDebugUnitTest
 ```
+
+## 8. NFT 凭证数据模型
+
+凭证相关模型位于 `com.jccdex.toolkits.did.model`：
+
+| 类型 | 用途 |
+|------|------|
+| `UnifiedNftCredentialData` | 签发/添加 VC 时的输入（self 所有权 / others 授权） |
+| `CredentialAuthorizationType` | `SELF` / `OTHERS` |
+| `UsageRights` | 授权用途，如 `AVATAR`、`NON_COMMERCIAL_DISPLAY` |
+| `NftCredentialRestrictions` | 授权限制（commercial、territories 等） |
+| `DidWriteResult` | 写操作结果（`success`、`didDocument`） |
+| `CredentialVerificationResult` | 验签结果（`verified`、`results`） |
+| `GranteeCredentialUpdateResult` | 被授权 VC 变更检测（`isUpdate`、`credential`） |
+| `QueryVcidResult` | VCID 查询校验结果（`isValid`、`credential`） |
+| `DidAvatarCredential` | 头像选择器用的 NFT 候选（含 `credentialId`、链信息等） |
+
+### 8.1 签发自有 VC（self）
+
+```kotlin
+val data = UnifiedNftCredentialData(
+    type = CredentialAuthorizationType.SELF,
+    granteeDid = ownerDid,
+    ownerDid = ownerDid,
+    chainId = 1,
+    tokenId = "123",
+    standard = "ERC-721",
+    contractAddress = "0x..."
+)
+val result = didSdk.addCredentialToDid(privateKey, ownerDid, currentDoc, data)
+```
+
+### 8.2 授权他人使用（others）
+
+```kotlin
+val data = UnifiedNftCredentialData(
+    type = CredentialAuthorizationType.OTHERS,
+    granteeDid = granteeDid,
+    ownerDid = ownerDid,
+    chainId = 1,
+    tokenId = "123",
+    standard = "ERC-721",
+    contractAddress = "0x...",
+    usageRights = listOf(UsageRights.AVATAR, UsageRights.NON_COMMERCIAL_DISPLAY),
+    restrictions = NftCredentialRestrictions()
+)
+val result = didSdk.addCredentialToDid(privateKey, ownerDid, currentDoc, data)
+```
+
+VCID 由 `DidCredentialHelper.generateVcId(data)` 规则生成，EVM 形如：
+
+`{ownerDid}#nft-{checksumContract}-{tokenId}-{granteeDid}`
+
+SWTC 形如：
+
+`{ownerDid}#nft-{tokenName}-{nftIssuer}-{tokenId}-{granteeDid}`
+
+## 9. 授权头像绑定示例
+
+被授权方粘贴 VCID 并完成绑定：
+
+```kotlin
+// 1. 校验 VCID（无需私钥）
+val query = didSdk.queryAndValidateVcid(vcid)
+if (!query.isValid || query.credential == null) {
+    // VC 无效或不存在
+    return
+}
+
+// 2. 确认当前用户是被授权方
+val subjectId = JSONObject(query.credential!!)
+    .getJSONObject("credentialSubject")
+    .getString("id")
+require(subjectId == currentDid)
+
+// 3. 合并 VC 到当前 DID 文档
+val bindResult = didSdk.bindVcidToDid(
+    privateKey = privateKey,
+    did = currentDid,
+    currentDoc = currentDoc,
+    credentialJson = query.credential!!
+)
+if (!bindResult.success) return
+
+// 4. 设为头像（不重新签发 VC）
+val avatarResult = didSdk.updatePreferredAvatar(
+    privateKey = privateKey,
+    did = currentDid,
+    currentDoc = bindResult.didDocument ?: currentDoc,
+    credentialId = vcid
+)
+```
+
+## 10. JS Bridge 方法
+
+默认 `IDidBridge`（`did-bridge.js`）与凭证相关的方法包括：
+
+| Bridge 方法 | SDK 调用方 |
+|-------------|-----------|
+| `didResolve` | `resolveDid`、`queryAndValidateVcid`、`checkGranteeCredentialUpdate` |
+| `publishDid` | 所有写操作（更新昵称/头像/凭证等） |
+| `generateVC` | `addCredentialToDid`、`updateDidAvatar` |
+| `verifyCredential` | `verifyCredential`、`queryAndValidateVcid` |
+| `didStat` | 写操作时填充 `previousCid` |
+
+`generateVC` 通过 `contextType` 区分 `ownership` 与 `usageAuthorization` 上下文。
