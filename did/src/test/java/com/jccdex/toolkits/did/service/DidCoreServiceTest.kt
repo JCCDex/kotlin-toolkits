@@ -176,6 +176,16 @@ class DidCoreServiceTest {
     }
 
     @Test
+    fun `resolveAndSaveDid deletes local when resolver returns bridge null sentinel`() = runTest {
+        val store = MemoryDidStore()
+        val service = DidCoreService(store, StaticResolver("null"))
+        store.upsert(DidEntity(did = "did:test:1", doc = """{"id":"did:test:1"}"""))
+
+        assertNull(service.resolveAndSaveDid("did:test:1"))
+        assertNull(store.get("did:test:1"))
+    }
+
+    @Test
     fun `resolveAndSaveDid returns null when resolver throws`() = runTest {
         val store = MemoryDidStore()
         val service =

@@ -21,7 +21,9 @@
     SwtcDidDocument,
     BaseNftVC,
     ETHER_NFTOWNERSHIP_CONTEXT,
-    SWTC_NFTOWNERSHIP_CONTEXT
+    SWTC_NFTOWNERSHIP_CONTEXT,
+    ETHER_NFT_USAGE_AUTHORIZATION_CONTEXT,
+    SWTC_NFT_USAGE_AUTHORIZATION_CONTEXT
   } = window.jcc_did;
 
   const client = new IpfsClient({
@@ -79,9 +81,17 @@
       return { code: "0", message: "success" };
     },
 
-    didResolve(params) {
+    async didResolve(params) {
       const { did } = params;
-      return resolveDidRuntime(did).resolver.resolve(did);
+      const runtime = resolveDidRuntime(did);
+      try {
+        return await runtime.resolver.resolve(did);
+      } catch (e) {
+        if (runtime.resolver.noLink(e)) {
+          return null;
+        }
+        throw e;
+      }
     },
 
     didStat(params) {
@@ -106,7 +116,7 @@
     },
 
     async generateVC(params) {
-      let { id, types, subject, privateKey, address, did, expirationDate } = params;
+      let { id, types, subject, privateKey, address, did, expirationDate, contextType } = params;
       if (!privateKey) {
         throw new Error("Private key is required for VC generation");
       }
@@ -147,7 +157,13 @@
       const keyDoc = getKeyDoc(didString, rawKp, keypair.type(), didString + "#key-1");
       const vc = new BaseNftVC();
       vc.setId(id);
-      vc.addContext(runtime.nftContext);
+      const nftContext =
+        contextType === "usageAuthorization"
+          ? runtime.resolver === swtcResolver
+            ? SWTC_NFT_USAGE_AUTHORIZATION_CONTEXT
+            : ETHER_NFT_USAGE_AUTHORIZATION_CONTEXT
+          : runtime.nftContext;
+      vc.addContext(nftContext);
 
       for (const type of types) {
         vc.addType(type);
@@ -160,6 +176,23 @@
 
       await vc.sign({ keyDoc });
       return JSON.stringify(vc.toJSON());
+    },
+
+    async verifyCredential(params) {
+      const { credential } = params;
+      if (!credential) {
+        throw new Error("Credential is required");
+      }
+
+      const credentialJson = typeof credential === "string" ? JSON.parse(credential) : credential;
+      const ownerDid = credentialJson.id?.split("#nft")[0];
+      if (!ownerDid) {
+        throw new Error("Invalid credential id");
+      }
+
+      const runtime = resolveDidRuntime(ownerDid);
+      const vc = BaseNftVC.fromJSON(credentialJson);
+      return await vc.verify({ resolver: runtime.resolver });
     },
 
     async generateDidDoc(params) {

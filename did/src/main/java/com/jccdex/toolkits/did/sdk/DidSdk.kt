@@ -24,7 +24,14 @@ import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
 import com.jccdex.toolkits.did.storage.room.RoomDidStore
 import com.jccdex.toolkits.did.store.IDidStore
+import com.jccdex.toolkits.did.model.CredentialVerificationResult
+import com.jccdex.toolkits.did.model.DidWriteResult
+import com.jccdex.toolkits.did.model.GranteeCredentialUpdateResult
+import com.jccdex.toolkits.did.model.QueryVcidResult
+import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
 import com.jccdex.toolkits.did.util.ChecksumUtils
+import com.jccdex.toolkits.did.util.DidCredentialHelper
+import com.jccdex.toolkits.did.util.DidResolveUtils
 import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.Nft as NftSdkNft
@@ -102,12 +109,7 @@ class DidSdk internal constructor(
                 if (profile != null) {
                     val vc = findCredentialById(credentials, profile.preferredAvatar)?.toString()
                     if (!vc.isNullOrBlank()) {
-                        nft =
-                            when {
-                                isSwtcDid(did) -> generateSwtcNft(vc)
-                                isEthrDid(did) -> generateEthrNft(vc)
-                                else -> null
-                            }
+                        nft = generateAvatarNft(vc)
                     }
                 }
 
@@ -128,6 +130,23 @@ class DidSdk internal constructor(
                 null
             }
         }
+
+    private suspend fun generateAvatarNft(vc: String): Nft? =
+        if (isSwtcAvatarVc(vc)) generateSwtcNft(vc) else generateEthrNft(vc)
+
+    /**
+     * Route avatar VC resolution by NFT standard / subject fields, not owner DID chain.
+     * Aligns with did_DApp `identity.vue` (`credentialSubject.standard`).
+     */
+    internal fun isSwtcAvatarVc(vc: String): Boolean {
+        when (readString(vc, "credentialSubject.standard")?.lowercase()) {
+            SWTC_NFT_STANDARD -> return true
+            EVM_NFT_STANDARD -> return false
+        }
+        val nftIssuer = readString(vc, "credentialSubject.nftIssuer").orEmpty()
+        val contractAddress = readString(vc, "credentialSubject.contractAddress").orEmpty()
+        return nftIssuer.isNotBlank() && contractAddress.isBlank()
+    }
 
     suspend fun generateSwtcNft(vc: String): Nft? {
         avatarResolver?.resolveSwtcAvatar(vc)?.let { return it }
@@ -449,6 +468,319 @@ class DidSdk internal constructor(
 
     suspend fun resolveDid(did: String): String? = core.resolveAndSaveDid(did)
 
+    fun readCredentials(doc: String): List<String> {
+        val credentials = DidCredentialHelper.readCredentials(doc)
+        return buildList {
+            for (index in 0 until credentials.length()) {
+                credentials.optJSONObject(index)?.toString()?.let(::add)
+            }
+        }
+    }
+
+    /**
+     * Add a signed NFT credential to the owner DID document and publish to IPFS.
+     * Supports self ownership VC and others usage-authorization VC (did_DApp parity).
+     */
+    suspend fun addCredentialToDid(
+        privateKey: String,
+        did: String,
+        currentDoc: String,
+        credentialData: UnifiedNftCredentialData
+    ): DidWriteResult =
+        withContext(Dispatchers.IO) {
+            try {
+                require(credentialData.ownerDid == did) { "ownerDid must match did" }
+                DidCredentialHelper.validateCredentialData(credentialData)
+                val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
+                val vcId = DidCredentialHelper.generateVcId(credentialData)
+                val credentials = DidCredentialHelper.readCredentials(doc)
+                if (DidCredentialHelper.findCredentialIndex(credentials, vcId) >= 0) {
+                    return@withContext DidWriteResult(success = true, didDocument = doc)
+                }
+
+                val vcJson = generateNftVc(privateKey, did, credentialData)
+                val json = JSONObject(doc)
+                val updatedCredentials = JSONArray()
+                for (index in 0 until credentials.length()) {
+                    updatedCredentials.put(credentials.getJSONObject(index))
+                }
+                updatedCredentials.put(JSONObject(vcJson))
+                json.put("credentials", updatedCredentials)
+                json.put("updated", Instant.now().toString())
+                applyPreviousCid(json, did)
+                json.remove("did")
+
+                val res = publishDid(did, privateKey, json.toString())
+                if (res.code == "0") {
+                    core.saveDidDocument(did, json.toString())
+                    DidWriteResult(success = true, didDocument = json.toString())
+                } else {
+                    DidWriteResult(success = false)
+                }
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error adding credential to DID", e)
+                DidWriteResult(success = false)
+            }
+        }
+
+    /**
+     * Remove a credential from the owner DID document and publish to IPFS.
+     * Clears [Profile.preferredAvatar] when the deleted VC is the current avatar.
+     */
+    suspend fun deleteCredentialFromDid(
+        privateKey: String,
+        did: String,
+        currentDoc: String,
+        credentialId: String
+    ): DidWriteResult =
+        withContext(Dispatchers.IO) {
+            try {
+                require(credentialId.isNotBlank()) { "credentialId is required" }
+                val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
+                val credentials = DidCredentialHelper.readCredentials(doc)
+                val targetIndex = DidCredentialHelper.findCredentialIndex(credentials, credentialId)
+                if (targetIndex < 0) {
+                    return@withContext DidWriteResult(success = false)
+                }
+
+                val json = JSONObject(doc)
+                val updatedCredentials = JSONArray()
+                for (index in 0 until credentials.length()) {
+                    if (index == targetIndex) continue
+                    updatedCredentials.put(credentials.getJSONObject(index))
+                }
+                json.put("credentials", updatedCredentials)
+                json.put("service", DidCredentialHelper.clearPreferredAvatarIfMatches(readServices(json), credentialId))
+                json.put("updated", Instant.now().toString())
+                applyPreviousCid(json, did)
+                json.remove("did")
+
+                val res = publishDid(did, privateKey, json.toString())
+                if (res.code == "0") {
+                    core.saveDidDocument(did, json.toString())
+                    DidWriteResult(success = true, didDocument = json.toString())
+                } else {
+                    DidWriteResult(success = false)
+                }
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error deleting credential from DID", e)
+                DidWriteResult(success = false)
+            }
+        }
+
+    /**
+     * Resolve the owner DID from [vcid], locate the credential, and verify it.
+     * Mirrors did_DApp [queryAndValidateVcid].
+     */
+    suspend fun queryAndValidateVcid(vcid: String): QueryVcidResult =
+        withContext(Dispatchers.IO) {
+            try {
+                if (vcid.isBlank()) {
+                    return@withContext QueryVcidResult(isValid = false, credential = null)
+                }
+                val ownerDid = DidCredentialHelper.ownerDidFromCredentialId(vcid)
+                if (ownerDid.isBlank()) {
+                    return@withContext QueryVcidResult(isValid = false, credential = null)
+                }
+                val ownerDoc = resolveOwnerDidDocument(ownerDid)
+                    ?: return@withContext QueryVcidResult(isValid = false, credential = null)
+                val credentials = DidCredentialHelper.readCredentials(ownerDoc)
+                val matchedIndex = DidCredentialHelper.findCredentialIndex(credentials, vcid)
+                if (matchedIndex < 0) {
+                    return@withContext QueryVcidResult(isValid = false, credential = null)
+                }
+                val credentialJson = credentials.getJSONObject(matchedIndex).toString()
+                val verifyResult = verifyCredential(credentialJson)
+                QueryVcidResult(
+                    isValid = verifyResult.verified,
+                    credential = credentialJson
+                )
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error querying VCID", e)
+                QueryVcidResult(isValid = false, credential = null)
+            }
+        }
+
+    /**
+     * Merge a validated credential into the current DID document and publish.
+     * Mirrors did_DApp [bindVcidToDid].
+     */
+    suspend fun bindVcidToDid(
+        privateKey: String,
+        did: String,
+        currentDoc: String,
+        credentialJson: String
+    ): DidWriteResult =
+        withContext(Dispatchers.IO) {
+            try {
+                require(credentialJson.isNotBlank()) { "credentialJson is required" }
+                val incoming = JSONObject(credentialJson)
+                val credentialId = incoming.optString("id")
+                require(credentialId.isNotBlank()) { "credential id is required" }
+
+                val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
+                val json = JSONObject(doc)
+                val credentials = DidCredentialHelper.readCredentials(doc)
+                val updatedCredentials = JSONArray()
+                var replaced = false
+                for (index in 0 until credentials.length()) {
+                    val existing = credentials.getJSONObject(index)
+                    if (existing.optString("id").equals(credentialId, ignoreCase = true)) {
+                        updatedCredentials.put(incoming)
+                        replaced = true
+                    } else {
+                        updatedCredentials.put(existing)
+                    }
+                }
+                if (!replaced) {
+                    updatedCredentials.put(incoming)
+                }
+                json.put("credentials", updatedCredentials)
+                json.put("updated", Instant.now().toString())
+                applyPreviousCid(json, did)
+                json.remove("did")
+
+                val res = publishDid(did, privateKey, json.toString())
+                if (res.code == "0") {
+                    core.saveDidDocument(did, json.toString())
+                    DidWriteResult(success = true, didDocument = json.toString())
+                } else {
+                    DidWriteResult(success = false)
+                }
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error binding VCID to DID", e)
+                DidWriteResult(success = false)
+            }
+        }
+
+    /**
+     * Update [Profile.preferredAvatar] without issuing a new VC.
+     * Mirrors did_DApp [updateUserProfile] when only avatar is changed.
+     */
+    suspend fun updatePreferredAvatar(
+        privateKey: String,
+        did: String,
+        currentDoc: String,
+        credentialId: String
+    ): DidWriteResult =
+        withContext(Dispatchers.IO) {
+            try {
+                require(credentialId.isNotBlank()) { "credentialId is required" }
+                val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
+                val json = JSONObject(doc)
+                val services = readServices(json)
+                val updatedServices = JSONArray()
+                for (index in 0 until services.length()) {
+                    val service = services.getJSONObject(index)
+                    when (service.optString("type")) {
+                        "Profile" -> {
+                            updatedServices.put(
+                                JSONObject().apply {
+                                    put("id", "$did#profile")
+                                    put("type", "Profile")
+                                    put(
+                                        "serviceEndpoint",
+                                        JSONObject().apply {
+                                            put("nickname", readProfileField(doc, "nickname").orEmpty())
+                                            put("preferredAvatar", credentialId)
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                        else -> updatedServices.put(service)
+                    }
+                }
+                json.put("service", updatedServices)
+                json.put("updated", Instant.now().toString())
+                applyPreviousCid(json, did)
+                json.remove("did")
+
+                val res = publishDid(did, privateKey, json.toString())
+                if (res.code == "0") {
+                    core.saveNewAvatarDid(did, json.toString())
+                    DidWriteResult(success = true, didDocument = json.toString())
+                } else {
+                    DidWriteResult(success = false)
+                }
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error updating preferred avatar", e)
+                DidWriteResult(success = false)
+            }
+        }
+
+    /**
+     * Verify a VC signature and validity. Mirrors did_DApp [verifyCredential].
+     */
+    suspend fun verifyCredential(credentialJson: String): CredentialVerificationResult =
+        withContext(Dispatchers.IO) {
+            if (credentialJson.isBlank()) {
+                throw IllegalArgumentException("Credential JSON is empty")
+            }
+
+            val credential = JSONObject(credentialJson)
+            val expirationDate = credential.optString("expirationDate")
+            if (expirationDate.isNotBlank()) {
+                runCatching { Instant.parse(expirationDate) }
+                    .getOrNull()
+                    ?.takeIf { it.isBefore(Instant.now()) }
+                    ?.let { return@withContext CredentialVerificationResult(verified = false) }
+            }
+
+            if (DidCredentialHelper.credentialIncludesType(credentialJson, DidCredentialHelper.VC_TYPE_USAGE_AUTHORIZATION)) {
+                if (checkGranteeCredentialUpdate(credentialJson).isUpdate) {
+                    return@withContext CredentialVerificationResult(verified = false)
+                }
+            }
+
+            val resultJson =
+                bridge.call(
+                    "verifyCredential",
+                    JSONObject().apply { put("credential", credentialJson) }.toString()
+                )
+            val result = JSONObject(resultJson)
+            CredentialVerificationResult(
+                verified = result.optBoolean("verified", false),
+                results = result.opt("results")?.toString()
+            )
+        }
+
+    /**
+     * Detect whether a grantee usage-authorization VC has been revoked or superseded on chain.
+     */
+    suspend fun checkGranteeCredentialUpdate(credentialJson: String): GranteeCredentialUpdateResult =
+        withContext(Dispatchers.IO) {
+            try {
+                val credential = JSONObject(credentialJson)
+                val credentialId = credential.optString("id")
+                val ownerDid = DidCredentialHelper.ownerDidFromCredentialId(credentialId)
+                if (ownerDid.isBlank()) {
+                    return@withContext GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+                }
+
+                val ownerDoc = resolveOwnerDidDocument(ownerDid) ?: return@withContext GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+                val credentials = DidCredentialHelper.readCredentials(ownerDoc)
+                val matchedIndex = DidCredentialHelper.findCredentialIndex(credentials, credentialId)
+                if (matchedIndex < 0) {
+                    return@withContext GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+                }
+
+                val matched = credentials.getJSONObject(matchedIndex)
+                val originalSubject = credential.optJSONObject("credentialSubject")
+                val matchedSubject = matched.optJSONObject("credentialSubject")
+                if (originalSubject?.optString("id") != matchedSubject?.optString("id")) {
+                    return@withContext GranteeCredentialUpdateResult(isUpdate = true, credential = matched.toString())
+                }
+                if (matched.optString("expirationDate") != credential.optString("expirationDate")) {
+                    return@withContext GranteeCredentialUpdateResult(isUpdate = true, credential = matched.toString())
+                }
+                GranteeCredentialUpdateResult(isUpdate = false, credential = matched.toString())
+            } catch (e: Exception) {
+                Log.e("DidSdk", "Error checking grantee credential update", e)
+                GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+            }
+        }
+
     private suspend fun publishDid(
         did: String,
         privateKey: String,
@@ -469,9 +801,20 @@ class DidSdk internal constructor(
         did: String,
         selectedAvatar: DidAvatarCredential
     ): String =
+        generateNftVc(
+            privateKey = privateKey,
+            ownerDid = did,
+            credentialData = DidCredentialHelper.fromAvatarCredential(did, selectedAvatar)
+        )
+
+    private suspend fun generateNftVc(
+        privateKey: String,
+        ownerDid: String,
+        credentialData: UnifiedNftCredentialData
+    ): String =
         bridge.call(
             "generateVC",
-            buildGenerateAvatarVcParams(privateKey, did, selectedAvatar).toString()
+            buildGenerateVcParams(privateKey, ownerDid, credentialData).toString()
         )
 
     internal fun buildGenerateAvatarVcParams(
@@ -479,44 +822,69 @@ class DidSdk internal constructor(
         did: String,
         selectedAvatar: DidAvatarCredential
     ): JSONObject =
-        JSONObject().apply {
+        buildGenerateVcParams(
+            privateKey = privateKey,
+            ownerDid = did,
+            credentialData = DidCredentialHelper.fromAvatarCredential(did, selectedAvatar)
+        ).apply {
             put("id", selectedAvatar.credentialId)
-            put("types", JSONArray(listOf("VerifiableCredential", "NFTOwnership")))
-            put("subject", buildAvatarSubject(did, selectedAvatar))
-            put("privateKey", privateKey)
-            put("address", did.substringAfterLast(':'))
-            put("did", did)
-            put("expirationDate", Instant.now().plusSeconds(365L * 24 * 60 * 60).toString())
         }
 
-    private fun buildAvatarSubject(
-        did: String,
-        selectedAvatar: DidAvatarCredential
+    internal fun buildGenerateVcParams(
+        privateKey: String,
+        ownerDid: String,
+        credentialData: UnifiedNftCredentialData
     ): JSONObject {
-        return if (selectedAvatar.isSwtc) {
-            JSONObject().apply {
-                put("id", did)
-                put("owner", did)
-                put("chainId", 315)
-                put("nftIssuer", selectedAvatar.issuer.orEmpty())
-                put("tokenName", selectedAvatar.tokenName.orEmpty())
-                put("tokenId", selectedAvatar.tokenId)
-                put("status", "Active")
-                put("standard", "jingtumNFT")
-            }
-        } else {
-            val checksumOwner = runCatching { ChecksumUtils.toChecksumAddress(did.substringAfterLast(':')) }.getOrDefault("")
-            val checksumContract = selectedAvatar.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
-            JSONObject().apply {
-                put("id", did)
-                put("owner", checksumOwner)
-                put("chainId", selectedAvatar.chainId ?: 1)
-                put("contractAddress", checksumContract)
-                put("tokenId", selectedAvatar.tokenId)
-                put("status", "Active")
-                put("standard", "ERC-721")
+        DidCredentialHelper.validateCredentialData(credentialData)
+        return JSONObject().apply {
+            put("id", DidCredentialHelper.generateVcId(credentialData))
+            put("types", JSONArray(DidCredentialHelper.vcTypesFor(credentialData)))
+            put("subject", DidCredentialHelper.buildNftSubject(credentialData))
+            put("privateKey", privateKey)
+            put("address", ownerDid.substringAfterLast(':'))
+            put("did", ownerDid)
+            put("expirationDate", Instant.now().plusMillis(credentialData.expirationDurationMs).toString())
+            put("contextType", DidCredentialHelper.contextTypeFor(credentialData))
+        }
+    }
+
+    private suspend fun resolveOwnerDidDocument(ownerDid: String): String? {
+        core.getDidDocument(ownerDid)?.doc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }?.let { return it }
+        val chainDoc =
+            runCatching {
+                bridge.call(
+                    "didResolve",
+                    JSONObject().apply { put("did", ownerDid) }.toString()
+                )
+            }.getOrNull()
+        return chainDoc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
+    }
+
+    private suspend fun applyPreviousCid(
+        json: JSONObject,
+        did: String
+    ) {
+        val previousCid = readDidStatCid(did)
+        if (previousCid.isBlank()) return
+        val services = readServices(json)
+        val updatedServices = JSONArray()
+        for (index in 0 until services.length()) {
+            val service = services.getJSONObject(index)
+            if (service.optString("type") == "IpfsStorage") {
+                val endpoint = service.optJSONObject("serviceEndpoint") ?: JSONObject()
+                endpoint.put("previousCid", previousCid)
+                updatedServices.put(
+                    JSONObject().apply {
+                        put("id", service.optString("id", "$did#ipfs-storage"))
+                        put("type", "IpfsStorage")
+                        put("serviceEndpoint", endpoint)
+                    }
+                )
+            } else {
+                updatedServices.put(service)
             }
         }
+        json.put("service", updatedServices)
     }
 
     private suspend fun readDidStatCid(did: String): String =
@@ -544,7 +912,9 @@ class DidSdk internal constructor(
                 )
             }.getOrNull()
 
-        if (!chainDoc.isNullOrBlank() && chainDoc != "{}") return chainDoc
+        if (!chainDoc.isNullOrBlank() && !DidResolveUtils.isMissingDidDocument(chainDoc)) {
+            return chainDoc
+        }
 
         return core.getDidDocument(did)?.doc
     }
@@ -671,14 +1041,33 @@ class DidSdk internal constructor(
     private fun isSwtcDid(id: String): Boolean = id.startsWith("did:swtc")
     private fun isEthrDid(id: String): Boolean = id.startsWith("did:ethr")
 
+    /**
+     * Aligns with did_DApp `generateVCId`:
+     * - EVM: `{ownerDID}#nft-{contractAddress}-{tokenId}-{granteeDID}`
+     * - SWTC: `{ownerDID}#nft-{tokenName}-{nftIssuer}-{tokenId}-{granteeDID}`
+     */
+    internal fun buildAvatarCredentialId(
+        ownerDid: String,
+        asset: DidAvatarAsset,
+        granteeDid: String = ownerDid
+    ): String =
+        if (asset.isSwtc) {
+            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
+            "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}-$granteeDid"
+        } else {
+            val checksumContract =
+                asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
+            "$ownerDid#nft-$checksumContract-${asset.tokenId}-$granteeDid"
+        }
+
     private fun buildAvatarCredential(
         ownerDid: String,
         asset: DidAvatarAsset
     ): DidAvatarCredential {
+        val credentialId = buildAvatarCredentialId(ownerDid, asset)
         return if (asset.isSwtc) {
-            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
             DidAvatarCredential(
-                credentialId = "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}",
+                credentialId = credentialId,
                 image = asset.image,
                 name = asset.name,
                 contract = asset.issuer,
@@ -693,7 +1082,7 @@ class DidSdk internal constructor(
             val checksumContract =
                 asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }.orEmpty()
             DidAvatarCredential(
-                credentialId = "$ownerDid#nft-$checksumContract-${asset.tokenId}",
+                credentialId = credentialId,
                 image = asset.image,
                 name = asset.name,
                 contract = checksumContract,
@@ -708,6 +1097,9 @@ class DidSdk internal constructor(
     }
 
     companion object {
+        private const val SWTC_NFT_STANDARD = "jingtumnft"
+        private const val EVM_NFT_STANDARD = "erc-721"
+
         fun create(
             context: Context,
             avatarResolver: IDidAvatarResolver? = null,
