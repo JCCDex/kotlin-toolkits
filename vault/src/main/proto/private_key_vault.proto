@@ -35,10 +35,16 @@ message PasswordEntry {
   bool has_biometric_cache = 8;
 }
 
+message BiometricEntry {
+  bytes iv = 1;
+  bytes ciphertext = 2;
+}
+
 message Vault {
   repeated PrivateKeyEntry keys = 1;
   repeated MnemonicEntry mnemonics = 2;
   PasswordEntry password = 3;
   string derivedKey = 4;
   repeated SecretEntry secrets = 5;
+  BiometricEntry biometric = 6;
 }
