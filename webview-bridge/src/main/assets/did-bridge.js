@@ -39,6 +39,7 @@
     if (!did) {
       throw new Error("DID is required");
     }
+    did = did.split("#")[0]; // Remove fragment if exists
     if (swtcResolver.supports(did)) {
       return {
         didObject: SwtcDid.fromIdentifier(did.substring(did.lastIndexOf(":") + 1)),
