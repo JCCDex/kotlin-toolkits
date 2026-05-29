@@ -82,7 +82,8 @@
     },
 
     async didResolve(params) {
-      const { did } = params;
+      let { did } = params;
+      did = did.split("#")[0]; // Remove fragment if present
       const runtime = resolveDidRuntime(did);
       try {
         return await runtime.resolver.resolve(did);
@@ -95,7 +96,8 @@
     },
 
     didStat(params) {
-      const { did } = params;
+      let { did } = params;
+      did = did.split("#")[0];
       return resolveDidRuntime(did).resolver.stat(did);
     },
 
