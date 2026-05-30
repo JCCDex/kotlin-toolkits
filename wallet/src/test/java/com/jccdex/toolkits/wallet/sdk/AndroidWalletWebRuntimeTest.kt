@@ -42,22 +42,23 @@ class AndroidWalletWebRuntimeTest {
         }
 
     @Test
-    fun delegatesToWebviewBridgeClient() = kotlinx.coroutines.test.runTest {
-        val client = RecordingBridgeClient()
-        val runtime = AndroidWalletWebRuntime(context) { client }
+    fun delegatesToWebviewBridgeClient() =
+        kotlinx.coroutines.test.runTest {
+            val client = RecordingBridgeClient()
+            val runtime = AndroidWalletWebRuntime(context) { client }
 
-        runtime.start()
-        val callResult = runtime.call("signMessage", JSONObject().apply { put("data", "hello") })
-        val callAsResult = runtime.callAs("deriveChild", null, String::class.java)
-        runtime.destroy()
+            runtime.start()
+            val callResult = runtime.call("signMessage", JSONObject().apply { put("data", "hello") })
+            val callAsResult = runtime.callAs("deriveChild", null, String::class.java)
+            runtime.destroy()
 
-        assertThat(client.initialized).isTrue
-        assertThat(client.started).isTrue
-        assertThat(client.lastMethod).isEqualTo("deriveChild")
-        assertThat(callResult).isEqualTo("signed")
-        assertThat(callAsResult).isEqualTo("derived")
-        assertThat(client.destroyed).isTrue
-    }
+            assertThat(client.initialized).isTrue
+            assertThat(client.started).isTrue
+            assertThat(client.lastMethod).isEqualTo("deriveChild")
+            assertThat(callResult).isEqualTo("signed")
+            assertThat(callAsResult).isEqualTo("derived")
+            assertThat(client.destroyed).isTrue
+        }
 
     private class RecordingBridgeClient : IWalletWebBridgeClient {
         var initialized = false

@@ -49,15 +49,16 @@ class CryptoHelpersTest {
     }
 
     @Test
-    fun `serializer can write and read empty vault`() = kotlinx.coroutines.test.runTest {
-        val context = ApplicationProvider.getApplicationContext<Application>()
-        val serializer = VaultSerializer(context)
-        val output = java.io.ByteArrayOutputStream()
+    fun `serializer can write and read empty vault`() =
+        kotlinx.coroutines.test.runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val serializer = VaultSerializer(context)
+            val output = java.io.ByteArrayOutputStream()
 
-        serializer.writeTo(Vault.getDefaultInstance(), output)
+            serializer.writeTo(Vault.getDefaultInstance(), output)
 
-        val restored = serializer.readFrom(output.toByteArray().inputStream())
+            val restored = serializer.readFrom(output.toByteArray().inputStream())
 
-        assertThat(restored).isEqualTo(Vault.getDefaultInstance())
-    }
+            assertThat(restored).isEqualTo(Vault.getDefaultInstance())
+        }
 }

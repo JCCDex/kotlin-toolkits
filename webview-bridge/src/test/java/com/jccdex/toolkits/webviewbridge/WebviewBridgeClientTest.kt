@@ -3,6 +3,7 @@ package com.jccdex.toolkits.webviewbridge
 import android.app.Application
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.After
@@ -11,7 +12,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import kotlinx.coroutines.test.runTest
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)

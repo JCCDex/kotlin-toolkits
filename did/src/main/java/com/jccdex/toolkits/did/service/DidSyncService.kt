@@ -6,30 +6,31 @@ import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.sdk.DidSdk
 
 class DidSyncService(
-	private val didSdk: DidSdk
+    private val didSdk: DidSdk
 ) {
-	suspend fun syncAccounts(accounts: List<WalletAccount>): DidSyncResult {
-		if (accounts.isEmpty()) return DidSyncResult(emptyList())
+    suspend fun syncAccounts(accounts: List<WalletAccount>): DidSyncResult {
+        if (accounts.isEmpty()) return DidSyncResult(emptyList())
 
-		val entries = buildList {
-			for (account in accounts) {
-				val did = didSdk.toDid(account)
-				if (did.isBlank()) continue
+        val entries =
+            buildList {
+                for (account in accounts) {
+                    val did = didSdk.toDid(account)
+                    if (did.isBlank()) continue
 
-				val document = runCatching { didSdk.resolveDid(did) }.getOrNull()
-				if (document.isNullOrBlank()) continue
+                    val document = runCatching { didSdk.resolveDid(did) }.getOrNull()
+                    if (document.isNullOrBlank()) continue
 
-				add(
-					DidSyncEntry(
-						did = did,
-						addressLower = account.address.lowercase(),
-						document = document,
-						nickname = didSdk.nickname(document)
-					)
-				)
-			}
-		}
+                    add(
+                        DidSyncEntry(
+                            did = did,
+                            addressLower = account.address.lowercase(),
+                            document = document,
+                            nickname = didSdk.nickname(document)
+                        )
+                    )
+                }
+            }
 
-		return DidSyncResult(entries)
-	}
+        return DidSyncResult(entries)
+    }
 }

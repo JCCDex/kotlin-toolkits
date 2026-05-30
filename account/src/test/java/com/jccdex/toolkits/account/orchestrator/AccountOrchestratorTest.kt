@@ -13,7 +13,6 @@ import com.jccdex.toolkits.wallet.model.Mnemonic
 import com.jccdex.toolkits.wallet.model.SubWallet
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
-import com.jccdex.toolkits.wallet.model.Path as WalletPath
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -29,6 +28,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import com.jccdex.toolkits.wallet.model.Path as WalletPath
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], manifest = Config.NONE)

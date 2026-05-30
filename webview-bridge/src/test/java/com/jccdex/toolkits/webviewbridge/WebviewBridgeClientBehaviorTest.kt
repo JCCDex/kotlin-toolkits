@@ -4,26 +4,25 @@ import android.app.Application
 import android.os.Looper
 import android.webkit.WebView
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
-import org.json.JSONObject
 import org.json.JSONException
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import java.lang.ref.WeakReference
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.ConcurrentHashMap
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -335,7 +334,7 @@ class WebviewBridgeClientBehaviorTest {
                     client.callJsMethodAs(
                         method = "getValue",
                         params = null,
-                        clazz = String::class.java,
+                        clazz = String::class.java
                     )
                 }
 

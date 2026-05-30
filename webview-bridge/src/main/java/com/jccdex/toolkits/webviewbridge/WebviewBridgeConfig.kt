@@ -7,5 +7,5 @@ fun androidAssetUrl(assetName: String): String = ANDROID_ASSET_PREFIX + assetNam
 data class WebviewBridgeConfig(
     val bridgeUrl: String = androidAssetUrl("bridge.html"),
     val jsInterfaceName: String = "JSBridge",
-    val consoleTag: String = "WebViewConsole",
+    val consoleTag: String = "WebViewConsole"
 )

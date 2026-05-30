@@ -25,7 +25,12 @@ class RealWalletWebBridgeClientTest {
         runTest {
             val bridgeClient = mockk<WebviewBridgeClient>(relaxed = true)
             coEvery {
-                bridgeClient.callJsMethod(method = "signMessage", params = any(), timeoutMs = any(), readyWaitMs = any())
+                bridgeClient.callJsMethod(
+                    method = "signMessage",
+                    params = any(),
+                    timeoutMs = any(),
+                    readyWaitMs = any()
+                )
             } returns "signed"
             coEvery {
                 bridgeClient.callJsMethodAs(

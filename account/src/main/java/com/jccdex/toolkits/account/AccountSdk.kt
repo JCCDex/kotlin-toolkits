@@ -5,15 +5,16 @@ import com.jccdex.toolkits.account.orchestrator.AccountOrchestrator
 import com.jccdex.toolkits.account.storage.room.AccountRoomDatabase
 import com.jccdex.toolkits.account.store.IAccountStore
 import com.jccdex.toolkits.account.store.RoomAccountStore
-import com.jccdex.toolkits.vault.VaultRepository
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
+import com.jccdex.toolkits.vault.VaultRepository
 import kotlinx.coroutines.flow.Flow
 
 class AccountSdk internal constructor(
     private val store: IAccountStore
 ) {
-    fun orchestrator(vaultRepository: VaultRepository): AccountOrchestrator = AccountOrchestrator(store, vaultRepository)
+    fun orchestrator(vaultRepository: VaultRepository): AccountOrchestrator =
+        AccountOrchestrator(store, vaultRepository)
 
     val accounts: Flow<List<WalletAccount>> get() = store.accounts
 
@@ -62,8 +63,7 @@ class AccountSdk internal constructor(
 
     suspend fun findByAddress(address: String): WalletAccount? = store.findByAddress(address)
 
-    suspend fun findRootAccountByAddress(address: String): WalletAccount? =
-        store.findRootAccountByAddress(address)
+    suspend fun findRootAccountByAddress(address: String): WalletAccount? = store.findRootAccountByAddress(address)
 
     suspend fun findNonRootAccount(
         address: String,

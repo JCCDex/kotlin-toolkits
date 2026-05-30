@@ -13,7 +13,7 @@ object AESCrypto {
     fun encrypt(
         plaintext: ByteArray,
         key: ByteArray,
-        aad: ByteArray?,
+        aad: ByteArray?
     ): Pair<ByteArray, ByteArray> {
         val cipher = Cipher.getInstance(TRANS)
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"))
@@ -25,7 +25,7 @@ object AESCrypto {
         iv: ByteArray,
         ciphertext: ByteArray,
         key: ByteArray,
-        aad: ByteArray?,
+        aad: ByteArray?
     ): ByteArray {
         val cipher = Cipher.getInstance(TRANS)
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, iv))

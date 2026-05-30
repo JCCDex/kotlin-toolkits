@@ -11,7 +11,7 @@ import java.io.InputStream
 import java.io.OutputStream
 
 class VaultSerializer(
-    private val appContext: Context,
+    private val appContext: Context
 ) : Serializer<Vault> {
     override val defaultValue: Vault = Vault.getDefaultInstance()
 
@@ -24,14 +24,14 @@ class VaultSerializer(
 
     override suspend fun writeTo(
         t: Vault,
-        output: OutputStream,
+        output: OutputStream
     ) {
         val ct =
             TinkManager
                 .get(appContext)
                 .encrypt(t.toByteArray(), AESCrypto.VAULT_V1_AAD.toByteArray())
-	    withContext(Dispatchers.IO) {
-		    output.write(ct)
-	    }
+        withContext(Dispatchers.IO) {
+            output.write(ct)
+        }
     }
 }

@@ -201,7 +201,11 @@ private class RecordingAccountStore : IAccountStore {
         accountsState.map { accounts -> accounts.filter { it.isTraditional() } }
 
     override fun getAccountsByChain(chain: ChainType): Flow<List<WalletAccount>> =
-        accountsState.map { accounts -> accounts.filter { it.chain == chain } }
+        accountsState.map { accounts ->
+            accounts.filter {
+                it.chain == chain
+            }
+        }
 
     override suspend fun addAccount(account: WalletAccount) {
         accountsState.value = accountsState.value + account
@@ -263,7 +267,9 @@ private class RecordingAccountStore : IAccountStore {
         }
 
     override suspend fun findByAddress(address: String): WalletAccount? =
-        accountsState.value.firstOrNull { it.address.equals(address, ignoreCase = true) }
+        accountsState.value.firstOrNull {
+            it.address.equals(address, ignoreCase = true)
+        }
 
     override suspend fun findRootAccountByAddress(address: String): WalletAccount? =
         accountsState.value.firstOrNull {
@@ -280,11 +286,14 @@ private class RecordingAccountStore : IAccountStore {
                 (it.isTraditional() || it.isSubHD())
         }
 
-    override suspend fun findById(id: String): WalletAccount? =
-        accountsState.value.firstOrNull { it.id == id }
+    override suspend fun findById(id: String): WalletAccount? = accountsState.value.firstOrNull { it.id == id }
 
     override fun getSubAccountsOf(parentId: String): Flow<List<WalletAccount>> =
-        accountsState.map { accounts -> accounts.filter { it.parentId == parentId } }
+        accountsState.map { accounts ->
+            accounts.filter {
+                it.parentId == parentId
+            }
+        }
 
     override suspend fun getMaxIndexByChain(
         parentId: String,
@@ -299,13 +308,14 @@ private class RecordingAccountStore : IAccountStore {
     override suspend fun countSubAccountsByChain(
         parentId: String,
         chain: ChainType
-    ): Int =
-        accountsState.value.count { it.parentId == parentId && it.chain == chain }
+    ): Int = accountsState.value.count { it.parentId == parentId && it.chain == chain }
 
     override suspend fun getCurrentAccountId(): String? = currentAccountIdState.value
 
     override suspend fun getSameAccountsCount(address: String): Int =
-        accountsState.value.count { it.address.equals(address, ignoreCase = true) }
+        accountsState.value.count {
+            it.address.equals(address, ignoreCase = true)
+        }
 
     override suspend fun clearAllAccounts() {
         accountsState.value = emptyList()
