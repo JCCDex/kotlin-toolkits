@@ -62,7 +62,7 @@ class WebviewBridgeClient {
 
     private fun getWebView(): WebView? = webViewRef?.get()
 
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
     private fun startInternal() {
         if (getWebView() != null) return
 
