@@ -85,7 +85,7 @@ internal interface IWalletBridge {
 
 internal class AndroidWalletWebRuntime(
     context: Context,
-    private val clientFactory: ((Context) -> IWalletWebBridgeClient)? = null
+    clientFactory: ((Context) -> IWalletWebBridgeClient)? = null
 ) : IWalletBridge {
     private val client =
         (clientFactory?.invoke(context) ?: RealWalletWebBridgeClient()).apply {

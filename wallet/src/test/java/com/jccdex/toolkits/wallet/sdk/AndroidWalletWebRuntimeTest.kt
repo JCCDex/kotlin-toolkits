@@ -68,7 +68,7 @@ class AndroidWalletWebRuntimeTest {
 
         override fun initialize(
             context: android.content.Context,
-            config: com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+            config: WebviewBridgeConfig
         ) {
             initialized = true
         }
