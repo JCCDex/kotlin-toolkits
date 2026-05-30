@@ -177,7 +177,7 @@ class VaultRepositoryTest {
                 mnemonic = chineseMnemonic,
                 privateKey = privateKey,
                 pathPrefix = "m/44'/315'/0'/0/0",
-                language = "chinese_simplified",
+                language = "chinese_simplified"
             )
             verify(exactly = 4) { any<ByteArray>().wipe() }
             clearRecord()
@@ -196,7 +196,7 @@ class VaultRepositoryTest {
                 address = address.lowercase(),
                 mnemonic = "测试".toByteArray(),
                 privateKey = "test".toByteArray(),
-                language = "chinese_simplified",
+                language = "chinese_simplified"
             )
             verify(exactly = 2) { any<ByteArray>().wipe() }
             Assertions
@@ -217,7 +217,7 @@ class VaultRepositoryTest {
                 mnemonic = chineseMnemonic,
                 privateKey = privateKey1,
                 pathPrefix = "m/44'/60'/0'/0/0",
-                language = "chinese_simplified",
+                language = "chinese_simplified"
             )
             verify(exactly = 4) { any<ByteArray>().wipe() }
             clearRecord()
@@ -410,7 +410,7 @@ class VaultRepositoryTest {
                 chineseAddress,
                 chineseAddress1,
                 address1,
-                address2,
+                address2
             )
 
             vault.removeAddress(address.lowercase(), password)
@@ -420,7 +420,7 @@ class VaultRepositoryTest {
                     chineseAddress,
                     chineseAddress1,
                     address1,
-                    address2,
+                    address2
                 )
             verify(exactly = 1) { password.wipe() }
             verify(exactly = 2) { any<ByteArray>().wipe() }

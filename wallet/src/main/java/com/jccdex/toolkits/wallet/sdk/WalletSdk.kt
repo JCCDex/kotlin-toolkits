@@ -1,11 +1,11 @@
 package com.jccdex.toolkits.wallet.sdk
 
 import android.content.Context
+import com.google.gson.Gson
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
 import com.jccdex.toolkits.wallet.model.Mnemonic
 import com.jccdex.toolkits.wallet.model.SubWallet
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
-import com.google.gson.Gson
 import org.json.JSONObject
 
 object WalletSdk {

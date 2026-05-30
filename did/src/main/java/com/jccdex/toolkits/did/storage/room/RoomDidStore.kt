@@ -8,7 +8,11 @@ import kotlinx.coroutines.flow.map
 class RoomDidStore(
     private val didDao: DidRoomDao
 ) : IDidStore {
-    override fun observeAll(): Flow<List<DidEntity>> = didDao.observeAll().map { entities -> entities.map { it.toCore() } }
+    override fun observeAll(): Flow<List<DidEntity>> =
+        didDao.observeAll().map {
+                entities ->
+            entities.map { it.toCore() }
+        }
 
     override fun observe(did: String): Flow<DidEntity?> = didDao.observeByDid(did).map { it?.toCore() }
 

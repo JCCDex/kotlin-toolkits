@@ -1,13 +1,13 @@
 package com.jccdex.toolkits.nft.storage.room
 
 import android.content.Context
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.ChainType
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.WalletAccount
-import com.google.gson.JsonObject
-import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -26,7 +26,12 @@ class NftStore(
         chainId: String,
         ownerAddress: String,
         contractAddress: String
-    ): Flow<List<EvmNftItemEntity>> = dao.observeEvmNftItems(chainId, ownerAddress.lowercase(), contractAddress.lowercase())
+    ): Flow<List<EvmNftItemEntity>> =
+        dao.observeEvmNftItems(
+            chainId,
+            ownerAddress.lowercase(),
+            contractAddress.lowercase()
+        )
 
     fun observeAllEvmNftItems(
         chainId: String,
@@ -235,7 +240,10 @@ class NftStore(
             }
         }
 
-    private fun parseString(vc: String, path: String): String? {
+    private fun parseString(
+        vc: String,
+        path: String
+    ): String? {
         return try {
             val cleaned = path.removePrefix("$.")
             var current = JsonParser.parseString(vc)

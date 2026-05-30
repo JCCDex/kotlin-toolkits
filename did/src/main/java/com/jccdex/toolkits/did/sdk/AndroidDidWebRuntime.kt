@@ -81,5 +81,11 @@ internal class AndroidDidWebRuntime(
     ): T = bridgeClient.callAs(method = method, params = params, clazz = clazz)
 
     override suspend fun resolve(did: String): String =
-        bridgeClient.call(method = "didResolve", params = JSONObject().apply { put("did", did) }.toString())
+        bridgeClient.call(
+            method = "didResolve",
+            params =
+                JSONObject().apply {
+                    put("did", did)
+                }.toString()
+        )
 }

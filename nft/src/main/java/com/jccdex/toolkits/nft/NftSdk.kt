@@ -5,10 +5,10 @@ import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.WalletAccount
-import com.jccdex.toolkits.nft.storage.room.NftStore
-import com.jccdex.toolkits.nft.storage.room.NftRoomDatabase
 import com.jccdex.toolkits.nft.storage.room.NftDao
 import com.jccdex.toolkits.nft.storage.room.NftMetaEntity
+import com.jccdex.toolkits.nft.storage.room.NftRoomDatabase
+import com.jccdex.toolkits.nft.storage.room.NftStore
 
 class NftSdk internal constructor(
     private val nftStore: NftStore

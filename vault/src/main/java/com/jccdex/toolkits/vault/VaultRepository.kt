@@ -18,7 +18,7 @@ import java.security.MessageDigest
 import java.util.Locale.getDefault
 
 class VaultRepository private constructor(
-    private val vaultStore: DataStore<Vault>,
+    private val vaultStore: DataStore<Vault>
 ) {
     private val mutex = Mutex()
 
@@ -34,7 +34,7 @@ class VaultRepository private constructor(
                 val vs =
                     DataStoreFactory.create(
                         serializer = VaultSerializer(app),
-                        produceFile = { app.dataStoreFile("vault.pb") },
+                        produceFile = { app.dataStoreFile("vault.pb") }
                     )
                 return VaultRepository(vs).also { instance = it }
             }
@@ -47,8 +47,8 @@ class VaultRepository private constructor(
             Argon2idKdf.Params(
                 iterations = 3,
                 memoryKiB = 64 * 1024,
-                parallelism = 1,
-            ),
+                parallelism = 1
+            )
     ) = mutex.withLock {
         if (hasPassword()) {
             password.wipe()
@@ -87,14 +87,15 @@ class VaultRepository private constructor(
 
     suspend fun hasBiometric(): Boolean = vaultStore.data.first().hasBiometric()
 
-    suspend fun clearBiometric() = mutex.withLock {
-        vaultStore.updateData { vault ->
-            vault
-                .toBuilder()
-                .clearBiometric()
-                .build()
+    suspend fun clearBiometric() =
+        mutex.withLock {
+            vaultStore.updateData { vault ->
+                vault
+                    .toBuilder()
+                    .clearBiometric()
+                    .build()
+            }
         }
-    }
 
     suspend fun getBiometric(): BiometricEntry {
         if (!hasBiometric()) {
@@ -105,7 +106,7 @@ class VaultRepository private constructor(
 
     suspend fun updateBiometric(
         ciphertext: ByteArray,
-        iv: ByteArray,
+        iv: ByteArray
     ) = mutex.withLock {
         try {
             vaultStore.updateData { vault ->
@@ -116,7 +117,7 @@ class VaultRepository private constructor(
                             .newBuilder()
                             .setIv(ByteString.copyFrom(iv))
                             .setCiphertext(ByteString.copyFrom(ciphertext))
-                            .build(),
+                            .build()
                     )
                     .build()
             }
@@ -143,7 +144,7 @@ class VaultRepository private constructor(
                         env.proofIv.toByteArray(),
                         env.proofCt.toByteArray(),
                         key,
-                        env.aad.toByteArray(),
+                        env.aad.toByteArray()
                     )
                 MessageDigest.isEqual(pt, password)
             } catch (_: Throwable) {
@@ -156,7 +157,7 @@ class VaultRepository private constructor(
 
     suspend fun importPrivateKey(
         address: String,
-        privateKey: ByteArray,
+        privateKey: ByteArray
     ) = mutex.withLock {
         lockedImportPrivateKey(address, privateKey)
     }
@@ -166,7 +167,7 @@ class VaultRepository private constructor(
         mnemonic: ByteArray,
         privateKey: ByteArray,
         pathPrefix: String = "m/44'/60'/0'/0/0",
-        language: String = "english",
+        language: String = "english"
     ) = mutex.withLock {
         lockedImportPrivateKey(address, privateKey)
 
@@ -202,7 +203,7 @@ class VaultRepository private constructor(
     suspend fun importSecret(
         address: String,
         privateKey: ByteArray,
-        secret: ByteArray,
+        secret: ByteArray
     ) = mutex.withLock {
         lockedImportPrivateKey(address, privateKey)
         if (addressInSecrets(address)) {
@@ -267,7 +268,7 @@ class VaultRepository private constructor(
 
     suspend fun removeAddress(
         address: String,
-        password: ByteArray,
+        password: ByteArray
     ) = mutex.withLock {
         if (!verifyPassword(password)) {
             throw IllegalArgumentException("Password is wrong")
@@ -300,7 +301,7 @@ class VaultRepository private constructor(
 
     suspend fun getPrivateKey(
         address: String,
-        password: ByteArray,
+        password: ByteArray
     ): ByteArray {
         val verified = verifyPassword(password = password)
         if (!verified) {
@@ -318,7 +319,7 @@ class VaultRepository private constructor(
                 entry.iv.toByteArray(),
                 entry.ciphertext.toByteArray(),
                 key,
-                aad,
+                aad
             )
         } finally {
             key.wipe()
@@ -327,7 +328,7 @@ class VaultRepository private constructor(
 
     suspend fun getSecret(
         address: String,
-        password: ByteArray,
+        password: ByteArray
     ): ByteArray {
         val verified = verifyPassword(password = password)
         if (!verified) {
@@ -345,7 +346,7 @@ class VaultRepository private constructor(
                 entry.iv.toByteArray(),
                 entry.ciphertext.toByteArray(),
                 key,
-                aad,
+                aad
             )
         } finally {
             key.wipe()
@@ -354,7 +355,7 @@ class VaultRepository private constructor(
 
     suspend fun getMnemonic(
         address: String,
-        password: ByteArray,
+        password: ByteArray
     ): ByteArray {
         val verified = verifyPassword(password = password)
         if (!verified) {
@@ -408,7 +409,7 @@ class VaultRepository private constructor(
                 entry.iv.toByteArray(),
                 entry.ciphertext.toByteArray(),
                 key,
-                aad,
+                aad
             )
         } finally {
             key.wipe()
@@ -434,8 +435,8 @@ class VaultRepository private constructor(
             Argon2idKdf.Params(
                 iterations = 3,
                 memoryKiB = 64 * 1024,
-                parallelism = 1,
-            ),
+                parallelism = 1
+            )
     ) = mutex.withLock {
         if (!verifyPassword(oldPassword)) {
             newPassword.wipe()
@@ -462,7 +463,7 @@ class VaultRepository private constructor(
                         .setProofIv(ByteString.copyFrom(iv))
                         .setProofCt(ByteString.copyFrom(ct))
                         .setHasBiometricCache(false)
-                        .build(),
+                        .build()
                 )
                 vault.setDerivedKey(Hex.encode(newKey))
 
@@ -478,7 +479,7 @@ class VaultRepository private constructor(
                                 .setAddress(e.address)
                                 .setIv(ByteString.copyFrom(eIv))
                                 .setCiphertext(ByteString.copyFrom(eCt))
-                                .build(),
+                                .build()
                         )
                 }
 
@@ -494,7 +495,7 @@ class VaultRepository private constructor(
                                 .setAddress(s.address)
                                 .setIv(ByteString.copyFrom(sIv))
                                 .setCiphertext(ByteString.copyFrom(sCt))
-                                .build(),
+                                .build()
                         )
                 }
 
@@ -512,7 +513,7 @@ class VaultRepository private constructor(
                             .setCiphertext(ByteString.copyFrom(mCt))
                             .setLang(m.lang)
                             .setHint(m.hint)
-                            .build(),
+                            .build()
                     )
                 }
                 val newData = vault.build()
@@ -531,7 +532,7 @@ class VaultRepository private constructor(
 
     private suspend fun lockedImportPrivateKey(
         address: String,
-        privateKey: ByteArray,
+        privateKey: ByteArray
     ) {
         if (addressInKeys(address)) {
             privateKey.wipe()

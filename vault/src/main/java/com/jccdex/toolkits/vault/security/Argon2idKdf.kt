@@ -12,7 +12,7 @@ object Argon2idKdf {
     data class Params(
         val iterations: Int,
         val memoryKiB: Int,
-        val parallelism: Int,
+        val parallelism: Int
     )
 
     fun randomSalt(len: Int = 16): ByteArray = ByteArray(len).apply { SecureRandom().nextBytes(this) }
@@ -21,7 +21,7 @@ object Argon2idKdf {
         password: ByteArray,
         salt: ByteArray,
         p: Params,
-        keyLen: Int = 32,
+        keyLen: Int = 32
     ): ByteArray {
         val pwd = String(password).toByteArray(Charsets.UTF_8)
         try {
@@ -47,7 +47,7 @@ object Argon2idKdf {
 object Argon2ParamChooser {
     fun choose(
         context: Context,
-        preferLargeHeap: Boolean = false,
+        preferLargeHeap: Boolean = false
     ): Argon2idKdf.Params {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mc = if (preferLargeHeap) am.largeMemoryClass else am.memoryClass

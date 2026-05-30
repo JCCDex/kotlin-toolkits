@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.android) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.google.protobuf) apply false
+    alias(libs.plugins.ktlint) apply false
     jacoco
 }
 
@@ -15,6 +16,10 @@ jacoco {
 
 subprojects {
     apply(plugin = "jacoco")
+
+    pluginManager.withPlugin("org.jetbrains.kotlin.android") {
+        apply(plugin = "org.jlleitschuh.gradle.ktlint")
+    }
 
     tasks.withType<Test>().configureEach {
         extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
@@ -130,3 +135,16 @@ tasks.register<JacocoReport>("jacocoAllModulesReport") {
         )
     )
 }
+
+tasks.register("ktlintCheckAll") {
+    group = "verification"
+    description = "Run ktlint checks for all kotlin-toolkits modules"
+    dependsOn(coverageModules.map { ":$it:ktlintCheck" })
+}
+
+tasks.register("ktlintFormatAll") {
+    group = "formatting"
+    description = "Auto-format Kotlin code with ktlint for all kotlin-toolkits modules"
+    dependsOn(coverageModules.map { ":$it:ktlintFormat" })
+}
+

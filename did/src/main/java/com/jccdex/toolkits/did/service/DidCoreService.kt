@@ -10,7 +10,7 @@ import org.json.JSONObject
 
 class DidCoreService(
     private val store: IDidStore,
-    private val resolver: IDidResolver,
+    private val resolver: IDidResolver
 ) {
     private val pendingDeleteUpdated = mutableMapOf<String, String>()
     private val pendingCreateDids = mutableSetOf<String>()
@@ -164,7 +164,10 @@ class DidCoreService(
         NICKNAME
     }
 
-    private fun readProfileField(doc: String, key: String): String? {
+    private fun readProfileField(
+        doc: String,
+        key: String
+    ): String? {
         return try {
             val root = JSONObject(doc)
             val services = root.optJSONArray("service") ?: root.optJSONArray("services") ?: return null

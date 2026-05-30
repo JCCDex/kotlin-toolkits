@@ -41,7 +41,10 @@ class AccountDaoTest {
     fun getAllAccountsSync_returnsPersistedRows() =
         runTest {
             val first = AccountEntity.fromWalletAccount(AccountTestFixtures.traditional(id = "sync-1"))
-            val second = AccountEntity.fromWalletAccount(AccountTestFixtures.traditional(id = "sync-2", address = "0x2"))
+            val second =
+                AccountEntity.fromWalletAccount(
+                    AccountTestFixtures.traditional(id = "sync-2", address = "0x2")
+                )
             accountDao.insert(first)
             accountDao.insert(second)
 
@@ -80,7 +83,10 @@ class AccountDaoTest {
     @Test
     fun update_and_delete_entityMethods() =
         runTest {
-            val entity = AccountEntity.fromWalletAccount(AccountTestFixtures.traditional(id = "entity-op", name = "old"))
+            val entity =
+                AccountEntity.fromWalletAccount(
+                    AccountTestFixtures.traditional(id = "entity-op", name = "old")
+                )
             accountDao.insert(entity)
 
             accountDao.update(entity.copy(name = "new"))

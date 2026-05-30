@@ -36,67 +36,81 @@ class RoomDidStoreTest {
     }
 
     @Test
-    fun `upsert preserves existing row id`() = runTest {
-        store.upsert(
-            DidEntity(
-                did = "did:test:1",
-                doc = """{"version":1}""",
-                updatedAt = 100L
+    fun `upsert preserves existing row id`() =
+        runTest {
+            store.upsert(
+                DidEntity(
+                    did = "did:test:1",
+                    doc = """{"version":1}""",
+                    updatedAt = 100L
+                )
             )
-        )
 
-        val before = store.get("did:test:1")
-        store.upsert(
-            DidEntity(
-                id = 999L,
-                did = "did:test:1",
-                doc = """{"version":2}""",
-                updatedAt = 200L
+            val before = store.get("did:test:1")
+            store.upsert(
+                DidEntity(
+                    id = 999L,
+                    did = "did:test:1",
+                    doc = """{"version":2}""",
+                    updatedAt = 200L
+                )
             )
-        )
 
-        val after = store.get("did:test:1")
-        assertThat(after?.id).isEqualTo(before?.id)
-        assertThat(after?.doc).isEqualTo("""{"version":2}""")
-    }
-
-    @Test
-    fun `queries prefer latest updated document`() = runTest {
-        database.didDao().insert(DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L))
-        database.didDao().insert(DidRoomEntity(id = 2L, did = "did:test:1", doc = """{"version":2}""", updatedAt = 200L))
-        database.didDao().insert(DidRoomEntity(id = 3L, did = "did:test:2", doc = """{"version":3}""", updatedAt = 150L))
-
-        val selected = store.get("did:test:1")
-        val all = store.observeAll().first()
-
-        assertThat(selected?.doc).isEqualTo("""{"version":2}""")
-        assertThat(all.map { it.did to it.doc }).containsExactly(
-            "did:test:1" to """{"version":2}""",
-            "did:test:2" to """{"version":3}""",
-            "did:test:1" to """{"version":1}"""
-        )
-    }
+            val after = store.get("did:test:1")
+            assertThat(after?.id).isEqualTo(before?.id)
+            assertThat(after?.doc).isEqualTo("""{"version":2}""")
+        }
 
     @Test
-    fun `observe emits mapped entity for did`() = runTest {
-        database.didDao().insert(
-            DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L)
-        )
+    fun `queries prefer latest updated document`() =
+        runTest {
+            database.didDao().insert(
+                DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L)
+            )
+            database.didDao().insert(
+                DidRoomEntity(id = 2L, did = "did:test:1", doc = """{"version":2}""", updatedAt = 200L)
+            )
+            database.didDao().insert(
+                DidRoomEntity(id = 3L, did = "did:test:2", doc = """{"version":3}""", updatedAt = 150L)
+            )
 
-        val observed = store.observe("did:test:1").first()
+            val selected = store.get("did:test:1")
+            val all = store.observeAll().first()
 
-        assertThat(observed?.doc).isEqualTo("""{"version":1}""")
-        assertThat(store.observe("did:missing").first()).isNull()
-    }
+            assertThat(selected?.doc).isEqualTo("""{"version":2}""")
+            assertThat(all.map { it.did to it.doc }).containsExactly(
+                "did:test:1" to """{"version":2}""",
+                "did:test:2" to """{"version":3}""",
+                "did:test:1" to """{"version":1}"""
+            )
+        }
 
     @Test
-    fun `delete removes all rows for did`() = runTest {
-        database.didDao().insert(DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L))
-        database.didDao().insert(DidRoomEntity(id = 2L, did = "did:test:1", doc = """{"version":2}""", updatedAt = 200L))
+    fun `observe emits mapped entity for did`() =
+        runTest {
+            database.didDao().insert(
+                DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L)
+            )
 
-        store.delete("did:test:1")
+            val observed = store.observe("did:test:1").first()
 
-        assertThat(store.get("did:test:1")).isNull()
-        assertThat(database.didDao().count()).isZero()
-    }
+            assertThat(observed?.doc).isEqualTo("""{"version":1}""")
+            assertThat(store.observe("did:missing").first()).isNull()
+        }
+
+    @Test
+    fun `delete removes all rows for did`() =
+        runTest {
+            database.didDao().insert(
+                DidRoomEntity(id = 1L, did = "did:test:1", doc = """{"version":1}""", updatedAt = 100L)
+            )
+            database.didDao().insert(
+                DidRoomEntity(id = 2L, did = "did:test:1", doc = """{"version":2}""", updatedAt = 200L)
+            )
+
+            store.delete("did:test:1")
+
+            assertThat(store.get("did:test:1")).isNull()
+            assertThat(database.didDao().count()).isZero()
+        }
 }

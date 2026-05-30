@@ -92,7 +92,9 @@ class WebviewBridgeClient {
                             super.onPageFinished(view, url)
                             try {
                                 w.evaluateJavascript(
-                                    "if(window.${config.jsInterfaceName} && window.${config.jsInterfaceName}.onBridgeReady){window.${config.jsInterfaceName}.onBridgeReady();}",
+                                    "if(window.${config.jsInterfaceName} && " +
+                                        "window.${config.jsInterfaceName}.onBridgeReady){" +
+                                        "window.${config.jsInterfaceName}.onBridgeReady();}",
                                     null
                                 )
                             } catch (_: Throwable) {

@@ -9,13 +9,22 @@ import com.jccdex.toolkits.did.model.WalletAccount
  * Implementations MUST be safe to call from background threads.
  */
 interface IDidBridge {
-	suspend fun call(method: String, params: String? = null): String
-	suspend fun <T> callAs(method: String, params: String? = null, clazz: Class<T>): T
+    suspend fun call(
+        method: String,
+        params: String? = null
+    ): String
+
+    suspend fun <T> callAs(
+        method: String,
+        params: String? = null,
+        clazz: Class<T>
+    ): T
 }
 
 interface IDidAvatarResolver {
-	suspend fun resolveSwtcAvatar(vc: String): Nft?
-	suspend fun resolveEthrAvatar(vc: String): Nft?
+    suspend fun resolveSwtcAvatar(vc: String): Nft?
+
+    suspend fun resolveEthrAvatar(vc: String): Nft?
 }
 
 /**
@@ -24,16 +33,16 @@ interface IDidAvatarResolver {
  * This stays out of [com.jccdex.toolkits.did.sdk.DidSdk] to avoid coupling to app-specific DB schemas.
  */
 interface IDidAvatarCredentialSource {
-	suspend fun getAvatarCandidates(account: WalletAccount): List<DidAvatarAsset>
+    suspend fun getAvatarCandidates(account: WalletAccount): List<DidAvatarAsset>
 }
 
 data class DidAvatarAsset(
-	val image: String?,
-	val name: String,
-	val contract: String?,
-	val tokenId: String,
-	val issuer: String?,
-	val tokenName: String?,
-	val chainId: Long?,
-	val isSwtc: Boolean
+    val image: String?,
+    val name: String,
+    val contract: String?,
+    val tokenId: String,
+    val issuer: String?,
+    val tokenName: String?,
+    val chainId: Long?,
+    val isSwtc: Boolean
 )

@@ -104,10 +104,14 @@ class RoomAccountStore(
     ): WalletAccount? = accountDao.getAccountByAddressAndChain(address, chain.bip44Code)?.toWalletAccount()
 
     override suspend fun findByAddress(address: String): WalletAccount? =
-        accountDao.getAccountByAddress(address)?.toWalletAccount()
+        accountDao.getAccountByAddress(
+            address
+        )?.toWalletAccount()
 
     override suspend fun findRootAccountByAddress(address: String): WalletAccount? =
-        accountDao.getRootAccountByAddress(address)?.toWalletAccount()
+        accountDao.getRootAccountByAddress(
+            address
+        )?.toWalletAccount()
 
     override suspend fun findNonRootAccount(
         address: String,

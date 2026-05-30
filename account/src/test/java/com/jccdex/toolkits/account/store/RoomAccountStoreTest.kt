@@ -1,10 +1,10 @@
 package com.jccdex.toolkits.account.store
 
 import android.content.Context
+import android.database.sqlite.SQLiteConstraintException
 import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.account.AccountTestDatabase
 import com.jccdex.toolkits.account.AccountTestFixtures
-import android.database.sqlite.SQLiteConstraintException
 import com.jccdex.toolkits.core.model.ChainType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking

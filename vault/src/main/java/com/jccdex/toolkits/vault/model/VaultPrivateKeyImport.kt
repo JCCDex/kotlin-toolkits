@@ -5,7 +5,7 @@ package com.jccdex.toolkits.vault.model
  */
 data class VaultPrivateKeyImport(
     val address: String,
-    val privateKey: ByteArray,
+    val privateKey: ByteArray
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
