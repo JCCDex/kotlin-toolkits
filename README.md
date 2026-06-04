@@ -8,8 +8,8 @@ kotlin toolkits for jccdex
 - `:account`: Wallet account metadata storage (`ccdao_accounts.db`). Main API: `AccountSdk`.
 - `:vault`: Encrypted key vault (DataStore + Protobuf + Tink). Main API: `VaultRepository`.
 - `:webview-bridge`: Shared hidden-WebView runtime and JS asset host. Main API: `WebviewBridgeEngine`.
-- `:did`: DID SDK (document CRUD, NFT credential issue/verify/bind, authorized-avatar VCID binding, Room storage). Main API: `DidSdk`.
-- `:nft`: NFT storage / avatar SDK. Main API: `NftSdk`.
+- `:did`: DID SDK (document CRUD, NFT credential issue/verify/bind, authorized-avatar VCID binding, Room storage, NFT image resolution facade). Main API: `DidSdk`.
+- `:nft`: NFT storage / avatar SDK (metadata cache, avatar resolution, remote NFT image normalization). Main API: `NftSdk`.
 - `:wallet`: Wallet bridge SDK (mnemonic/derivation/signing helpers over hidden WebView). Main API: `WalletSdk`.
 
 ## DID

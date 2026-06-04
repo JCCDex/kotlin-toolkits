@@ -4,9 +4,11 @@ import android.app.Application
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.nft.model.ChainType
+import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.WalletAccount
 import com.jccdex.toolkits.nft.storage.room.EvmNftItemEntity
+import com.jccdex.toolkits.nft.storage.room.NftDao
 import com.jccdex.toolkits.nft.storage.room.NftMetaEntity
 import com.jccdex.toolkits.nft.storage.room.NftRoomDatabase
 import com.jccdex.toolkits.nft.storage.room.SwtcNftEntity
@@ -16,6 +18,8 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -24,6 +28,46 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class NftSdkTest {
+    @Test
+    fun `normalizeAssetUrl converts ipfs uri to gateway url`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+        assertEquals(
+            "https://ipfs.jccdex.cn/ipfs/bafy123/avatar.png",
+            sdk.normalizeAssetUrl("ipfs://bafy123/avatar.png")
+        )
+    }
+
+    @Test
+    fun `normalizeAssetUrl resolves relative path against metadata url`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+        assertEquals(
+            "https://example.com/assets/avatar.png",
+            sdk.normalizeAssetUrl(
+                "assets/avatar.png",
+                "https://example.com/meta.json"
+            )
+        )
+    }
+
+    @Test
+    fun `extractResolvedMetadataImageUrl reads and normalizes image field`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+        assertEquals(
+            "https://example.com/nft/avatar.png",
+            sdk.extractResolvedMetadataImageUrl(
+                """{"image":"./nft/avatar.png"}""",
+                "https://example.com/meta.json"
+            )
+        )
+    }
+
+    @Test
+    fun `isSupportedRemoteAssetUrl accepts http and rejects ipfs`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+        assertTrue(sdk.isSupportedRemoteAssetUrl("https://example.com/a.png"))
+        assertFalse(sdk.isSupportedRemoteAssetUrl("ipfs://bafy123/a.png"))
+    }
+
     @Test
     fun `resolveEthrAvatar uses token uri instead of metadata json`() =
         runTest {
@@ -122,6 +166,214 @@ class NftSdkTest {
                 )
 
                 assertEquals("https://example.com/avatar.png", sdk.fetchAndCacheNftMeta("issuer", "1", tokenUri)?.image)
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
+    fun `resolveCredentialImage prefers metadata image when image url is blank`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao())
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"image":"ipfs://bafy-test/avatar.png"}""")
+            )
+            server.start()
+
+            try {
+                val resolved =
+                    sdk.resolveCredentialImage(
+                        imageUrl = null,
+                        metadataUri = server.url("/meta.json").toString()
+                    )
+
+                assertEquals(
+                    "https://ipfs.jccdex.cn/ipfs/bafy-test/avatar.png",
+                    resolved
+                )
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
+    fun `resolveCredentialImage returns metadata uri directly when it is already an image url`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao())
+
+            try {
+                val resolved =
+                    sdk.resolveCredentialImage(
+                        imageUrl = null,
+                        metadataUri = "https://example.com/avatar.png"
+                    )
+
+                assertEquals("https://example.com/avatar.png", resolved)
+            } finally {
+                database.close()
+            }
+        }
+
+    @Test
+    fun `resolveCredentialImage retries metadata fetch after a transient failure`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao())
+            val server = MockWebServer()
+            server.enqueue(MockResponse().setResponseCode(500))
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"image":"https://example.com/avatar.png"}""")
+            )
+            server.start()
+
+            try {
+                val metadataUri = server.url("/meta.json").toString()
+
+                val first =
+                    sdk.resolveCredentialImage(
+                        imageUrl = null,
+                        metadataUri = metadataUri
+                    )
+                val second =
+                    sdk.resolveCredentialImage(
+                        imageUrl = null,
+                        metadataUri = metadataUri
+                    )
+
+                assertEquals(null, first)
+                assertEquals("https://example.com/avatar.png", second)
+                assertEquals(2, server.requestCount)
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
+    fun `resolveCredentialImages deduplicates identical requests`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao())
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody("""{"image":"https://example.com/avatar.png"}""")
+            )
+            server.start()
+
+            try {
+                val metadataUri = server.url("/meta.json").toString()
+                val requests =
+                    listOf(
+                        CredentialImageRequest(
+                            imageUrl = null,
+                            metadataUri = metadataUri,
+                            chainId = 1440000L,
+                            contractAddress = "issuer",
+                            tokenId = "1"
+                        ),
+                        CredentialImageRequest(
+                            imageUrl = null,
+                            metadataUri = metadataUri,
+                            chainId = 1440000L,
+                            contractAddress = "issuer",
+                            tokenId = "1"
+                        )
+                    )
+
+                val resolved = sdk.resolveCredentialImages(requests)
+
+                assertEquals(2, resolved.size)
+                assertEquals("https://example.com/avatar.png", resolved[0]?.url)
+                assertEquals(resolved[0], resolved[1])
+                assertEquals(1, server.requestCount)
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
+    fun `extractSwtcMetadataUri decodes token infos payload`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+
+        val metadataUri =
+            sdk.extractSwtcMetadataUri(
+                """
+                [
+                  {
+                    "TokenInfo": {
+                      "InfoType": "746f6b656e557269",
+                      "InfoData": "697066733a2f2f626166792d746573742f6d6574612e6a736f6e"
+                    }
+                  }
+                ]
+                """.trimIndent()
+            )
+
+        assertEquals("https://ipfs.jccdex.cn/ipfs/bafy-test/meta.json", metadataUri)
+    }
+
+    @Test
+    fun `fetchMetadataFields extracts normalized image name and description`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao())
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody(
+                        """
+                        {
+                          "data": {
+                            "name": "avatar",
+                            "description": "hello",
+                            "image": "./images/avatar.png"
+                          }
+                        }
+                        """.trimIndent()
+                    )
+            )
+            server.start()
+
+            try {
+                val expectedImageUrl = server.url("/images/avatar.png").toString()
+                val fields = sdk.fetchMetadataFields(server.url("/meta.json").toString())
+
+                assertEquals(expectedImageUrl, fields.image)
+                assertEquals("avatar", fields.name)
+                assertEquals("hello", fields.description)
             } finally {
                 server.shutdown()
                 database.close()
@@ -293,7 +545,7 @@ class NftSdkTest {
                     )
 
                 assertEquals("avatar", result?.name)
-                assertEquals("ipfs://meta", result?.uri)
+                assertEquals("https://ipfs.jccdex.cn/ipfs/meta", result?.uri)
                 assertEquals(true, result?.hasLocal)
             } finally {
                 database.close()

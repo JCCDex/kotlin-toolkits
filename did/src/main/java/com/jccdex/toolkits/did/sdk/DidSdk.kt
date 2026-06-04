@@ -35,7 +35,10 @@ import com.jccdex.toolkits.did.util.DidCredentialHelper
 import com.jccdex.toolkits.did.util.DidResolveUtils
 import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.AvatarCandidate
+import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
+import com.jccdex.toolkits.nft.model.NftMetadataFields
+import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -196,6 +199,36 @@ class DidSdk internal constructor(
         }
     }
 
+    suspend fun resolveCredentialImage(
+        imageUrl: String?,
+        metadataUri: String?
+    ): String? = nftSdk?.resolveCredentialImage(imageUrl, metadataUri)
+
+    suspend fun resolveCredentialImage(request: CredentialImageRequest): ResolvedCredentialImage? =
+        nftSdk?.resolveCredentialImage(request)
+
+    suspend fun resolveCredentialImages(requests: List<CredentialImageRequest>): List<ResolvedCredentialImage?> =
+        nftSdk?.resolveCredentialImages(requests).orEmpty()
+
+    suspend fun fetchResolvedMetadataImage(metadataUrl: String): String? =
+        nftSdk?.fetchResolvedMetadataImage(metadataUrl)
+
+    fun normalizeAssetUrl(
+        rawUrl: String?,
+        baseUrl: String? = null
+    ): String? = nftSdk?.normalizeAssetUrl(rawUrl, baseUrl)
+
+    fun extractResolvedMetadataImageUrl(
+        metadataBody: String,
+        metadataUri: String
+    ): String? = nftSdk?.extractResolvedMetadataImageUrl(metadataBody, metadataUri)
+
+    fun isSupportedRemoteAssetUrl(url: String?): Boolean = nftSdk?.isSupportedRemoteAssetUrl(url) == true
+
+    fun extractSwtcMetadataUri(tokenInfosPayload: String?): String? = nftSdk?.extractSwtcMetadataUri(tokenInfosPayload)
+
+    suspend fun fetchMetadataFields(metadataUri: String): NftMetadataFields? = nftSdk?.fetchMetadataFields(metadataUri)
+
     private suspend fun buildEthrNft(vc: String): Nft? {
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val contract = readString(vc, "credentialSubject.contractAddress") ?: ""
@@ -301,7 +334,10 @@ class DidSdk internal constructor(
                         put("did", did)
                     }
 
-                val didDocJson = bridge.call("generateDidDoc", didDoc.toString())
+                val didDocJson =
+                    ensureCredentialsArrayInDidDocument(
+                        bridge.call("generateDidDoc", didDoc.toString())
+                    )
                 val res =
                     bridge.callAs(
                         "publishDid",
@@ -1077,6 +1113,18 @@ class DidSdk internal constructor(
             updated = formatUtc(updated),
             verificationMethods = verificationMethods
         )
+    }
+
+    /**
+     * Initial DID documents must always expose `credentials` as an empty array.
+     * The JS `generateDidDoc` bridge may omit the field when no credentials are added.
+     */
+    internal fun ensureCredentialsArrayInDidDocument(didDocJson: String): String {
+        val json = JSONObject(didDocJson)
+        if (json.optJSONArray("credentials") == null) {
+            json.put("credentials", JSONArray())
+        }
+        return json.toString()
     }
 
     private fun findCredentialById(

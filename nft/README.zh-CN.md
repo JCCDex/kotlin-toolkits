@@ -4,6 +4,7 @@
 - 读取本地 NFT 数据
 - 解析 SWTC / EVM 头像 VC
 - 拉取并缓存 NFT 元数据
+- 统一解析 NFT 远程图片地址（IPFS / 相对路径 / metadata image）
 - 生成头像候选数据
 
 ## 1. 模块与关键类
@@ -27,6 +28,14 @@
 - `resolveSwtcAvatar(vc)`：解析 SWTC 头像 VC
 - `resolveEthrAvatar(vc)`：解析 EVM 头像 VC
 - `fetchAndCacheNftMeta(contract, tokenId, tokenUri)`：拉取并缓存元数据
+- `resolveCredentialImage(imageUrl, metadataUri)`：统一解析 NFT 图片地址，必要时读取 metadata 里的 `image`
+- `resolveCredentialImages(requests)`：批量解析凭证图片，并按 NFT / metadata / resolved URL 自动去重
+- `extractSwtcMetadataUri(tokenInfosPayload)`：从 SWTC explorer 的 `TokenInfos` 载荷中提取 metadata URI
+- `fetchMetadataFields(metadataUri)`：拉取 metadata，并返回规范化后的 `image` / `name` / `description`
+- `normalizeAssetUrl(rawUrl, baseUrl)`：规范化 IPFS、HTTP 网关地址、相对路径
+- `extractResolvedMetadataImageUrl(metadataBody, metadataUri)`：从 metadata JSON 中提取并规范化 `image`
+- `fetchResolvedMetadataImage(metadataUrl)`：直接拉取 metadata 并返回解析后的图片地址
+- `isSupportedRemoteAssetUrl(url)`：判断是否可直接加载远程资源
 
 ## 3. 快速接入
 
@@ -41,6 +50,40 @@ val nftSdk =
 
 ```kotlin
 val nftSdk = NftSdk.create(nftDao)
+```
+
+解析 NFT 图片地址：
+
+```kotlin
+val resolvedImage =
+    nftSdk.resolveCredentialImage(
+        imageUrl = nft.image,
+        metadataUri = nft.uri
+    )
+```
+
+批量预解析并去重：
+
+```kotlin
+val resolvedImages =
+    nftSdk.resolveCredentialImages(
+        listOf(
+            CredentialImageRequest(
+                imageUrl = nft.image,
+                metadataUri = nft.uri,
+                chainId = nft.chainId,
+                contractAddress = nft.contract,
+                tokenId = nft.tokenId
+            )
+        )
+    )
+```
+
+解析 SWTC metadata：
+
+```kotlin
+val metadataUri = nftSdk.extractSwtcMetadataUri(tokenInfosJson)
+val fields = metadataUri?.let(nftSdk::fetchMetadataFields)
 ```
 
 ## 4. 存储说明

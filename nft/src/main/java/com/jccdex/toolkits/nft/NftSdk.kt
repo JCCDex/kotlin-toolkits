@@ -2,8 +2,11 @@ package com.jccdex.toolkits.nft
 
 import android.content.Context
 import com.jccdex.toolkits.nft.model.AvatarCandidate
+import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
+import com.jccdex.toolkits.nft.model.NftMetadataFields
+import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import com.jccdex.toolkits.nft.model.WalletAccount
 import com.jccdex.toolkits.nft.storage.room.NftDao
 import com.jccdex.toolkits.nft.storage.room.NftMetaEntity
@@ -25,6 +28,36 @@ class NftSdk internal constructor(
         tokenId: String,
         tokenUri: String
     ): NftMetaEntity? = nftStore.fetchAndCacheNftMeta(contract, tokenId, tokenUri)
+
+    suspend fun resolveCredentialImage(
+        imageUrl: String?,
+        metadataUri: String?
+    ): String? = nftStore.resolveCredentialImage(imageUrl, metadataUri)
+
+    suspend fun resolveCredentialImage(request: CredentialImageRequest): ResolvedCredentialImage? =
+        nftStore.resolveCredentialImage(request)
+
+    suspend fun resolveCredentialImages(requests: List<CredentialImageRequest>): List<ResolvedCredentialImage?> =
+        nftStore.resolveCredentialImages(requests)
+
+    suspend fun fetchResolvedMetadataImage(metadataUrl: String): String? =
+        nftStore.fetchResolvedMetadataImage(metadataUrl)
+
+    fun normalizeAssetUrl(
+        rawUrl: String?,
+        baseUrl: String? = null
+    ): String? = nftStore.normalizeAssetUrl(rawUrl, baseUrl)
+
+    fun extractResolvedMetadataImageUrl(
+        metadataBody: String,
+        metadataUri: String
+    ): String? = nftStore.extractResolvedMetadataImageUrl(metadataBody, metadataUri)
+
+    fun isSupportedRemoteAssetUrl(url: String?): Boolean = nftStore.isSupportedRemoteAssetUrl(url)
+
+    fun extractSwtcMetadataUri(tokenInfosPayload: String?): String? = nftStore.extractSwtcMetadataUri(tokenInfosPayload)
+
+    suspend fun fetchMetadataFields(metadataUri: String): NftMetadataFields = nftStore.fetchMetadataFields(metadataUri)
 
     companion object {
         fun create(
