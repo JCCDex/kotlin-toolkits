@@ -6,6 +6,7 @@
 - DID 专用 WebView JS Runtime
 - Room 本地存储
 - `IDidBridge` / `IDidResolver` 默认实现
+- `NftSdk` 默认接入（用于 NFT 头像与远程图片解析）
 
 接入方通常只需要提供头像相关扩展点。
 
@@ -125,6 +126,10 @@ val didSdk =
   - 按 VC 内容（`jingtumNFT` / `ERC-721`）路由解析头像，而非按 DID 链类型
   - 支持跨链头像（例如 ETH DID + SWTC NFT VC）
 - **从 VC 解析 NFT 展示**：`generateSwtcNft(vc)` / `generateEthrNft(vc)`
+- **统一解析 NFT 图片地址**：`resolveCredentialImage(imageUrl, metadataUri)`
+- **批量预解析凭证图片**：`resolveCredentialImages(requests)`
+- **提取 SWTC metadata 地址**：`extractSwtcMetadataUri(tokenInfosPayload)`
+- **拉取 metadata 关键字段**：`fetchMetadataFields(metadataUri)`
 
 #### NFT 凭证（VC）管理
 

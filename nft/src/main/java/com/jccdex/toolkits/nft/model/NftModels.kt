@@ -26,6 +26,25 @@ data class AvatarCandidate(
     val isSwtc: Boolean
 )
 
+data class NftMetadataFields(
+    val image: String?,
+    val name: String?,
+    val description: String?
+)
+
+data class CredentialImageRequest(
+    val imageUrl: String?,
+    val metadataUri: String?,
+    val chainId: Long? = null,
+    val contractAddress: String? = null,
+    val tokenId: String? = null
+)
+
+data class ResolvedCredentialImage(
+    val url: String,
+    val cacheKey: String
+)
+
 interface EthTokenUriResolver {
     suspend fun resolveEthrTokenUri(
         contract: String,

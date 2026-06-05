@@ -5,9 +5,18 @@ import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.ChainType
+import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.Nft
+import com.jccdex.toolkits.nft.model.NftMetadataFields
+import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import com.jccdex.toolkits.nft.model.WalletAccount
+import com.jccdex.toolkits.nft.remote.extractMetadataFields
+import com.jccdex.toolkits.nft.remote.extractMetadataImageUrl
+import com.jccdex.toolkits.nft.remote.fetchMetadataImage
+import com.jccdex.toolkits.nft.remote.isLoadableRemoteAssetUrl
+import com.jccdex.toolkits.nft.remote.normalizeRemoteAssetUrl
+import com.jccdex.toolkits.nft.remote.resolveRemoteImageUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -15,6 +24,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import com.jccdex.toolkits.nft.remote.extractSwtcMetadataUri as parseSwtcMetadataUri
 
 class NftStore(
     private val dao: NftDao,
@@ -138,12 +148,13 @@ class NftStore(
 
         val localMeta = getNftMeta(nftIssuer, tokenId)
         if (localMeta != null) {
+            val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(localMeta.tokenUri))
             return Nft(
                 contract = nftIssuer,
                 tokenId = tokenId,
                 name = localMeta.name ?: tokenName,
-                uri = localMeta.tokenUri.orEmpty(),
-                image = localMeta.image,
+                uri = resolvedUri,
+                image = resolveRemoteImageUrl(localMeta.image, resolvedUri),
                 hasLocal = true,
                 issuanceDate = issuance,
                 chainId = null
@@ -151,12 +162,13 @@ class NftStore(
         }
 
         val swtcNft = getSwtcNftByIssuerAndTokenId(nftIssuer, tokenId)
+        val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(swtcNft?.metadataUri))
         return Nft(
             contract = nftIssuer,
             tokenId = tokenId,
             name = swtcNft?.name ?: tokenName,
-            uri = swtcNft?.metadataUri.orEmpty(),
-            image = swtcNft?.image,
+            uri = resolvedUri,
+            image = resolveRemoteImageUrl(swtcNft?.image, resolvedUri),
             hasLocal = swtcNft?.image != null,
             issuanceDate = issuance,
             chainId = null
@@ -172,17 +184,20 @@ class NftStore(
 
         val resolvedTokenUri =
             sanitizeUri(
-                ethTokenUriResolver
-                    ?.resolveEthrTokenUri(contract, tokenId, chainId)
+                normalizeRemoteAssetUrl(
+                    ethTokenUriResolver
+                        ?.resolveEthrTokenUri(contract, tokenId, chainId)
+                )
             )
         val localMeta = getNftMeta(contract, tokenId)
         if (localMeta != null) {
+            val localTokenUri = sanitizeUri(normalizeRemoteAssetUrl(localMeta.tokenUri))
             return Nft(
                 contract = contract,
                 tokenId = tokenId,
                 name = localMeta.name.orEmpty(),
-                uri = sanitizeUri(localMeta.tokenUri).ifBlank { resolvedTokenUri },
-                image = localMeta.image,
+                uri = localTokenUri.ifBlank { resolvedTokenUri },
+                image = resolveRemoteImageUrl(localMeta.image, localTokenUri.ifBlank { resolvedTokenUri }),
                 hasLocal = true,
                 issuanceDate = issuance,
                 chainId = chainId
@@ -190,12 +205,17 @@ class NftStore(
         }
 
         val evmItem = getEvmNftItemByContractAndTokenId("0x${chainId.toString(16)}", contract, tokenId)
+        val fallbackMetadataUri = sanitizeUri(normalizeRemoteAssetUrl(evmItem?.metadata))
         return Nft(
             contract = contract,
             tokenId = tokenId,
             name = evmItem?.title.orEmpty(),
-            uri = resolvedTokenUri.ifBlank { sanitizeUri(evmItem?.metadata) },
-            image = evmItem?.imageUrl,
+            uri = resolvedTokenUri.ifBlank { fallbackMetadataUri },
+            image =
+                resolveRemoteImageUrl(
+                    evmItem?.imageUrl,
+                    resolvedTokenUri.ifBlank { fallbackMetadataUri }
+                ),
             hasLocal = evmItem?.imageUrl != null,
             issuanceDate = issuance,
             chainId = chainId
@@ -212,12 +232,7 @@ class NftStore(
             try {
                 val content = fetchJson(tokenUri) ?: return@withContext null
                 val nameVal = content.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
-                val imageVal =
-                    content.get("image")
-                        ?.takeIf { it.isJsonPrimitive }
-                        ?.asString
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() }
+                val imageVal = extractMetadataImageUrl(content.toString(), tokenUri)
                 val entity =
                     NftMetaEntity(
                         contract = contract,
@@ -239,6 +254,63 @@ class NftStore(
                 null
             }
         }
+
+    suspend fun resolveCredentialImage(
+        imageUrl: String?,
+        metadataUri: String?
+    ): String? = resolveRemoteImageUrl(imageUrl, metadataUri)
+
+    suspend fun fetchResolvedMetadataImage(metadataUrl: String): String? = fetchMetadataImage(metadataUrl)
+
+    suspend fun resolveCredentialImage(request: CredentialImageRequest): ResolvedCredentialImage? {
+        val resolvedUrl = resolveCredentialImage(request.imageUrl, request.metadataUri) ?: return null
+        return ResolvedCredentialImage(
+            url = resolvedUrl,
+            cacheKey =
+                buildCredentialAssetKey(
+                    chainId = request.chainId,
+                    contractAddress = request.contractAddress,
+                    tokenId = request.tokenId,
+                    imageUrl = request.imageUrl,
+                    metadataUri = request.metadataUri,
+                    resolvedUrl = resolvedUrl
+                )
+        )
+    }
+
+    suspend fun resolveCredentialImages(requests: List<CredentialImageRequest>): List<ResolvedCredentialImage?> {
+        if (requests.isEmpty()) {
+            return emptyList()
+        }
+        val resolvedByKey = LinkedHashMap<String, ResolvedCredentialImage?>()
+        return requests.map { request ->
+            val dedupeKey = buildCredentialResolutionKey(request)
+            resolvedByKey.getOrPut(dedupeKey) { resolveCredentialImage(request) }
+        }
+    }
+
+    fun normalizeAssetUrl(
+        rawUrl: String?,
+        baseUrl: String? = null
+    ): String? = normalizeRemoteAssetUrl(rawUrl, baseUrl)
+
+    fun extractResolvedMetadataImageUrl(
+        metadataBody: String,
+        metadataUri: String
+    ): String? = extractMetadataImageUrl(metadataBody, metadataUri)
+
+    fun isSupportedRemoteAssetUrl(url: String?): Boolean = isLoadableRemoteAssetUrl(url)
+
+    fun extractSwtcMetadataUri(tokenInfosPayload: String?): String? = parseSwtcMetadataUri(tokenInfosPayload)
+
+    suspend fun fetchMetadataFields(metadataUri: String): NftMetadataFields {
+        val normalizedUri = normalizeRemoteAssetUrl(metadataUri) ?: return NftMetadataFields(null, null, null)
+        val body =
+            runCatching { fetchText(normalizedUri) }
+                .getOrNull()
+                ?: return NftMetadataFields(null, null, null)
+        return extractMetadataFields(body, normalizedUri)
+    }
 
     private fun parseString(
         vc: String,
@@ -272,6 +344,44 @@ class NftStore(
         return trimmed.startsWith("{") || trimmed.startsWith("[")
     }
 
+    private fun buildCredentialResolutionKey(request: CredentialImageRequest): String =
+        listOf(
+            request.chainId?.toString().orEmpty(),
+            request.contractAddress?.trim()?.lowercase().orEmpty(),
+            request.tokenId?.trim().orEmpty(),
+            normalizeRemoteAssetUrl(request.metadataUri)?.trim().orEmpty(),
+            normalizeRemoteAssetUrl(request.imageUrl, request.metadataUri)?.trim().orEmpty()
+        ).joinToString("|")
+
+    private fun buildCredentialAssetKey(
+        chainId: Long?,
+        contractAddress: String?,
+        tokenId: String?,
+        imageUrl: String?,
+        metadataUri: String?,
+        resolvedUrl: String
+    ): String =
+        when {
+            resolvedUrl.isNotBlank() ->
+                "image:${resolvedUrl.trim()}"
+
+            !contractAddress.isNullOrBlank() && !tokenId.isNullOrBlank() ->
+                listOf(
+                    "nft",
+                    chainId?.toString().orEmpty().ifBlank { "unknown" },
+                    contractAddress.trim().lowercase(),
+                    tokenId.trim()
+                ).joinToString(":")
+
+            !metadataUri.isNullOrBlank() ->
+                "metadata:${normalizeRemoteAssetUrl(metadataUri)?.trim().orEmpty().ifBlank { metadataUri.trim() }}"
+
+            !imageUrl.isNullOrBlank() ->
+                "image:${normalizeRemoteAssetUrl(imageUrl, metadataUri)?.trim().orEmpty().ifBlank { imageUrl.trim() }}"
+
+            else -> "image:${resolvedUrl.trim()}"
+        }
+
     private suspend fun fetchJson(url: String): JsonObject? =
         withContext(Dispatchers.IO) {
             val connection = (URL(url).openConnection() as HttpURLConnection)
@@ -285,6 +395,27 @@ class NftStore(
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
                 if (code !in 200..299 || body.isBlank()) return@withContext null
                 JsonParser.parseString(body).asJsonObject
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+    private suspend fun fetchText(url: String): String? =
+        withContext(Dispatchers.IO) {
+            val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return@withContext null
+            try {
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 10_000
+                connection.instanceFollowRedirects = true
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299 || body.isBlank()) {
+                    null
+                } else {
+                    body
+                }
             } finally {
                 connection.disconnect()
             }

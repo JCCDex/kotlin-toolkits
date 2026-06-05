@@ -228,13 +228,17 @@
           didDoc.addService(svc);
         }
       }
-      if (credentials) {
+      if (Array.isArray(credentials)) {
         for (const cred of credentials) {
           didDoc.addCredential(cred);
         }
       }
 
-      return didDoc.toJSON();
+      const serialized = didDoc.toJSON();
+      if (!Array.isArray(serialized.credentials)) {
+        serialized.credentials = [];
+      }
+      return serialized;
     }
   };
 

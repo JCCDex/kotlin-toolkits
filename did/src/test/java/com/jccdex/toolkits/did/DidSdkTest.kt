@@ -22,11 +22,15 @@ import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.jccdex.toolkits.did.util.DidCredentialHelper
+import com.jccdex.toolkits.nft.model.CredentialImageRequest
+import com.jccdex.toolkits.nft.model.NftMetadataFields
+import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
+import io.mockk.slot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -619,6 +623,70 @@ class DidSdkTest {
             assertThat(result).isTrue()
             coVerify { bridge.call("generateDidDoc", any()) }
             coVerify { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+        }
+
+    @Test
+    fun `ensureCredentialsArrayInDidDocument adds empty credentials when missing`() {
+        val normalized = sdk.ensureCredentialsArrayInDidDocument("""{"did":"did:ethr:0x1"}""")
+
+        val doc = JSONObject(normalized)
+        assertTrue(doc.has("credentials"))
+        assertEquals(0, doc.getJSONArray("credentials").length())
+    }
+
+    @Test
+    fun `ensureCredentialsArrayInDidDocument preserves existing credentials`() {
+        val normalized =
+            sdk.ensureCredentialsArrayInDidDocument(
+                """{"did":"did:ethr:0x1","credentials":[{"id":"cred-1"}]}"""
+            )
+
+        assertEquals(1, JSONObject(normalized).getJSONArray("credentials").length())
+    }
+
+    @Test
+    fun `uploadInitialDidDoc ensures empty credentials array in published document`() =
+        runTest {
+            val publishParamsSlot = slot<String>()
+            coEvery { bridge.call("generateDidDoc", any()) } returns """{"did":"did:ethr:0x123"}"""
+            coEvery {
+                bridge.callAs(
+                    "publishDid",
+                    capture(publishParamsSlot),
+                    PublishDidResult::class.java
+                )
+            } returns PublishDidResult(code = "0", message = "ok")
+            coEvery {
+                bridge.callAs(
+                    "generatePublicKeyBase58",
+                    any(),
+                    GenerateBase58PKResult::class.java
+                )
+            } returns
+                GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+            coEvery {
+                bridge.callAs(
+                    "didStat",
+                    any(),
+                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                )
+            } returns com.jccdex.toolkits.did.model.DidStatResult(cid = "cid")
+            val store = MemoryDidStore()
+            val sdkWithStore =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, mockk(relaxed = true)),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
+
+            assertThat(result).isTrue()
+            val publishParams = JSONObject(publishParamsSlot.captured)
+            val publishedDoc = JSONObject(publishParams.getString("didDocument"))
+            assertTrue(publishedDoc.has("credentials"))
+            assertEquals(0, publishedDoc.getJSONArray("credentials").length())
         }
 
     @Test
@@ -1216,6 +1284,107 @@ class DidSdkTest {
                     remoteNft.uri
                 )
             }
+        }
+
+    @Test
+    fun `resolveCredentialImage delegates to nft sdk`() =
+        runTest {
+            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            coEvery {
+                nftSdk.resolveCredentialImage(
+                    "ipfs://bafy-test/avatar.png",
+                    "https://example.com/meta.json"
+                )
+            } returns "https://ipfs.jccdex.cn/ipfs/bafy-test/avatar.png"
+            val localSdk =
+                DidSdk(
+                    bridge,
+                    coreService,
+                    avatarResolver,
+                    avatarCredentialSource,
+                    nftSdk
+                )
+
+            val resolved =
+                localSdk.resolveCredentialImage(
+                    "ipfs://bafy-test/avatar.png",
+                    "https://example.com/meta.json"
+                )
+
+            assertEquals("https://ipfs.jccdex.cn/ipfs/bafy-test/avatar.png", resolved)
+        }
+
+    @Test
+    fun `resolveCredentialImages delegates to nft sdk`() =
+        runTest {
+            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val requests =
+                listOf(
+                    CredentialImageRequest(
+                        imageUrl = null,
+                        metadataUri = "https://example.com/meta.json",
+                        chainId = 1440000L,
+                        contractAddress = "issuer",
+                        tokenId = "1"
+                    )
+                )
+            val expected =
+                listOf(
+                    ResolvedCredentialImage(
+                        url = "https://example.com/avatar.png",
+                        cacheKey = "image:https://example.com/avatar.png"
+                    )
+                )
+            coEvery { nftSdk.resolveCredentialImages(requests) } returns expected
+            val localSdk =
+                DidSdk(
+                    bridge,
+                    coreService,
+                    avatarResolver,
+                    avatarCredentialSource,
+                    nftSdk
+                )
+
+            assertEquals(expected, localSdk.resolveCredentialImages(requests))
+        }
+
+    @Test
+    fun `extractSwtcMetadataUri delegates to nft sdk`() {
+        val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+        every {
+            nftSdk.extractSwtcMetadataUri("""[{"TokenInfo":{"InfoType":"746f6b656e557269"}}]""")
+        } returns "https://ipfs.jccdex.cn/ipfs/bafy-test/meta.json"
+        val localSdk =
+            DidSdk(
+                bridge,
+                coreService,
+                avatarResolver,
+                avatarCredentialSource,
+                nftSdk
+            )
+
+        assertEquals(
+            "https://ipfs.jccdex.cn/ipfs/bafy-test/meta.json",
+            localSdk.extractSwtcMetadataUri("""[{"TokenInfo":{"InfoType":"746f6b656e557269"}}]""")
+        )
+    }
+
+    @Test
+    fun `fetchMetadataFields delegates to nft sdk`() =
+        runTest {
+            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val expected = NftMetadataFields("https://example.com/avatar.png", "avatar", "hello")
+            coEvery { nftSdk.fetchMetadataFields("https://example.com/meta.json") } returns expected
+            val localSdk =
+                DidSdk(
+                    bridge,
+                    coreService,
+                    avatarResolver,
+                    avatarCredentialSource,
+                    nftSdk
+                )
+
+            assertEquals(expected, localSdk.fetchMetadataFields("https://example.com/meta.json"))
         }
 
     @Test
