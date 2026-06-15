@@ -48,7 +48,14 @@ data class CredentialVerificationResult(
 
 data class GranteeCredentialUpdateResult(
     val isUpdate: Boolean,
-    val credential: String? = null
+    val credential: String? = null,
+    /**
+     * True when [isUpdate] could not be determined because the owner DID document
+     * could not be fetched (network/resolution failure), as opposed to the credential
+     * being genuinely revoked or superseded. Callers that want to avoid showing a
+     * transient failure as "invalidated" should treat this as "status unknown".
+     */
+    val fetchFailed: Boolean = false
 )
 
 data class QueryVcidResult(

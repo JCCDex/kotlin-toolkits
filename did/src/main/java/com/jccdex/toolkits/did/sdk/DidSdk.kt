@@ -841,7 +841,8 @@ class DidSdk internal constructor(
                     resolveOwnerDidDocument(ownerDid)
                         ?: return@withContext GranteeCredentialUpdateResult(
                             isUpdate = true,
-                            credential = null
+                            credential = null,
+                            fetchFailed = true
                         )
                 val credentials = DidCredentialHelper.readCredentials(ownerDoc)
                 val matchedIndex =
@@ -871,7 +872,7 @@ class DidSdk internal constructor(
                 GranteeCredentialUpdateResult(isUpdate = false, credential = matched.toString())
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error checking grantee credential update", e)
-                GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+                GranteeCredentialUpdateResult(isUpdate = true, credential = null, fetchFailed = true)
             }
         }
 
