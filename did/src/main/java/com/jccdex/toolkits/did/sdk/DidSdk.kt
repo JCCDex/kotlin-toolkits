@@ -229,6 +229,10 @@ class DidSdk internal constructor(
 
     suspend fun fetchMetadataFields(metadataUri: String): NftMetadataFields? = nftSdk?.fetchMetadataFields(metadataUri)
 
+    suspend fun ensureSwtcCredentialMetadata(vc: String) {
+        nftSdk?.ensureSwtcCredentialMetadata(vc)
+    }
+
     private suspend fun buildEthrNft(vc: String): Nft? {
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val contract = readString(vc, "credentialSubject.contractAddress") ?: ""

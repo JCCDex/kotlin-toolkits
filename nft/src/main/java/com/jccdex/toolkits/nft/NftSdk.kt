@@ -21,6 +21,8 @@ class NftSdk internal constructor(
 
     suspend fun resolveSwtcAvatar(vc: String): Nft? = nftStore.resolveSwtcAvatar(vc)
 
+    suspend fun ensureSwtcCredentialMetadata(vc: String) = nftStore.ensureSwtcCredentialMetadata(vc)
+
     suspend fun resolveEthrAvatar(vc: String): Nft? = nftStore.resolveEthrAvatar(vc)
 
     suspend fun fetchAndCacheNftMeta(
