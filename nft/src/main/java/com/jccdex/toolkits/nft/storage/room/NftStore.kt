@@ -11,6 +11,7 @@ import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.NftMetadataFields
 import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import com.jccdex.toolkits.nft.model.WalletAccount
+import com.jccdex.toolkits.nft.remote.SwtcChainNftClient
 import com.jccdex.toolkits.nft.remote.extractMetadataFields
 import com.jccdex.toolkits.nft.remote.extractMetadataImageUrl
 import com.jccdex.toolkits.nft.remote.fetchMetadataImage
@@ -28,7 +29,8 @@ import com.jccdex.toolkits.nft.remote.extractSwtcMetadataUri as parseSwtcMetadat
 
 class NftStore(
     private val dao: NftDao,
-    private val ethTokenUriResolver: EthTokenUriResolver? = null
+    private val ethTokenUriResolver: EthTokenUriResolver? = null,
+    private val swtcChainNftClient: SwtcChainNftClient = SwtcChainNftClient()
 ) {
     fun observeSwtcNfts(ownerAddress: String): Flow<List<SwtcNftEntity>> = dao.observeSwtcNfts(ownerAddress)
 
@@ -76,7 +78,23 @@ class NftStore(
     ): SwtcNftEntity? = dao.getSwtcNftByTokenId(ownerAddress, tokenId)
 
     suspend fun deleteSwtcNftsByOwner(ownerAddress: String) {
+        observeSwtcNfts(ownerAddress).first().forEach { entity ->
+            preserveSwtcEntityAsMeta(entity)
+        }
         dao.deleteSwtcNftsByOwner(ownerAddress)
+    }
+
+    /**
+     * Ensures SWTC NFT metadata for a credential exists in [nft_meta], fetching from chain by
+     * [tokenId] when the NFT is not in the local ownership cache.
+     */
+    suspend fun ensureSwtcCredentialMetadata(vc: String) {
+        val tokenId = parseString(vc, "$.credentialSubject.tokenId").orEmpty()
+        val nftIssuer = parseString(vc, "$.credentialSubject.nftIssuer").orEmpty()
+        if (tokenId.isBlank() || nftIssuer.isBlank()) {
+            return
+        }
+        resolveAndCacheSwtcNftMeta(nftIssuer, tokenId)
     }
 
     suspend fun getEvmNftItemByContractAndTokenId(
@@ -146,30 +164,49 @@ class NftStore(
         val issuance = parseString(vc, "$.issuanceDate").orEmpty()
         if (tokenId.isBlank() || nftIssuer.isBlank()) return null
 
-        val localMeta = getNftMeta(nftIssuer, tokenId)
-        if (localMeta != null) {
-            val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(localMeta.tokenUri))
-            return Nft(
-                contract = nftIssuer,
+        getNftMeta(nftIssuer, tokenId)?.let { localMeta ->
+            buildSwtcNftFromMeta(
+                nftIssuer = nftIssuer,
                 tokenId = tokenId,
-                name = localMeta.name ?: tokenName,
-                uri = resolvedUri,
-                image = resolveRemoteImageUrl(localMeta.image, resolvedUri),
-                hasLocal = true,
-                issuanceDate = issuance,
-                chainId = null
+                tokenName = tokenName,
+                issuance = issuance,
+                meta = localMeta
+            )?.let { return it }
+        }
+
+        getSwtcNftByIssuerAndTokenId(nftIssuer, tokenId)?.let { swtcNft ->
+            val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(swtcNft.metadataUri))
+            if (!swtcNft.image.isNullOrBlank() || resolvedUri.isNotBlank()) {
+                return Nft(
+                    contract = nftIssuer,
+                    tokenId = tokenId,
+                    name = swtcNft.name ?: tokenName,
+                    uri = resolvedUri,
+                    image = resolveRemoteImageUrl(swtcNft.image, resolvedUri),
+                    hasLocal = swtcNft.image != null,
+                    issuanceDate = issuance,
+                    chainId = null
+                )
+            }
+        }
+
+        resolveAndCacheSwtcNftMeta(nftIssuer, tokenId)?.let { cachedMeta ->
+            return buildSwtcNftFromMeta(
+                nftIssuer = nftIssuer,
+                tokenId = tokenId,
+                tokenName = tokenName,
+                issuance = issuance,
+                meta = cachedMeta
             )
         }
 
-        val swtcNft = getSwtcNftByIssuerAndTokenId(nftIssuer, tokenId)
-        val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(swtcNft?.metadataUri))
         return Nft(
             contract = nftIssuer,
             tokenId = tokenId,
-            name = swtcNft?.name ?: tokenName,
-            uri = resolvedUri,
-            image = resolveRemoteImageUrl(swtcNft?.image, resolvedUri),
-            hasLocal = swtcNft?.image != null,
+            name = tokenName,
+            uri = "",
+            image = null,
+            hasLocal = false,
             issuanceDate = issuance,
             chainId = null
         )
@@ -310,6 +347,67 @@ class NftStore(
                 .getOrNull()
                 ?: return NftMetadataFields(null, null, null)
         return extractMetadataFields(body, normalizedUri)
+    }
+
+    private suspend fun resolveAndCacheSwtcNftMeta(
+        nftIssuer: String,
+        tokenId: String
+    ): NftMetaEntity? {
+        val existing = getNftMeta(nftIssuer, tokenId)
+        if (!existing?.image.isNullOrBlank()) {
+            return existing
+        }
+
+        val tokenUri =
+            existing?.tokenUri?.takeIf { it.isNotBlank() }
+                ?: swtcChainNftClient.fetchMetadataUri(tokenId)
+                ?: return existing
+
+        return fetchAndCacheNftMeta(nftIssuer, tokenId, tokenUri) ?: existing
+    }
+
+    private suspend fun preserveSwtcEntityAsMeta(entity: SwtcNftEntity) {
+        val metadataUri = entity.metadataUri?.takeIf { it.isNotBlank() } ?: return
+        val existing = getNftMeta(entity.issuer, entity.tokenId)
+        if (!existing?.image.isNullOrBlank()) {
+            return
+        }
+        dao.upsertNftMeta(
+            NftMetaEntity(
+                id = existing?.id ?: 0,
+                contract = entity.issuer,
+                tokenId = entity.tokenId,
+                name = entity.name?.takeIf { it.isNotBlank() } ?: existing?.name,
+                image = entity.image?.takeIf { it.isNotBlank() } ?: existing?.image,
+                tokenUri = metadataUri,
+                fullContent = existing?.fullContent,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    private suspend fun buildSwtcNftFromMeta(
+        nftIssuer: String,
+        tokenId: String,
+        tokenName: String,
+        issuance: String,
+        meta: NftMetaEntity
+    ): Nft? {
+        val resolvedUri = sanitizeUri(normalizeRemoteAssetUrl(meta.tokenUri))
+        val image = resolveRemoteImageUrl(meta.image, resolvedUri)
+        if (image.isNullOrBlank() && resolvedUri.isBlank()) {
+            return null
+        }
+        return Nft(
+            contract = nftIssuer,
+            tokenId = tokenId,
+            name = meta.name ?: tokenName,
+            uri = resolvedUri,
+            image = image,
+            hasLocal = !meta.image.isNullOrBlank(),
+            issuanceDate = issuance,
+            chainId = null
+        )
     }
 
     private fun parseString(

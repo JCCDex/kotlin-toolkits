@@ -229,6 +229,10 @@ class DidSdk internal constructor(
 
     suspend fun fetchMetadataFields(metadataUri: String): NftMetadataFields? = nftSdk?.fetchMetadataFields(metadataUri)
 
+    suspend fun ensureSwtcCredentialMetadata(vc: String) {
+        nftSdk?.ensureSwtcCredentialMetadata(vc)
+    }
+
     private suspend fun buildEthrNft(vc: String): Nft? {
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val contract = readString(vc, "credentialSubject.contractAddress") ?: ""
@@ -841,7 +845,8 @@ class DidSdk internal constructor(
                     resolveOwnerDidDocument(ownerDid)
                         ?: return@withContext GranteeCredentialUpdateResult(
                             isUpdate = true,
-                            credential = null
+                            credential = null,
+                            fetchFailed = true
                         )
                 val credentials = DidCredentialHelper.readCredentials(ownerDoc)
                 val matchedIndex =
@@ -871,7 +876,7 @@ class DidSdk internal constructor(
                 GranteeCredentialUpdateResult(isUpdate = false, credential = matched.toString())
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error checking grantee credential update", e)
-                GranteeCredentialUpdateResult(isUpdate = true, credential = null)
+                GranteeCredentialUpdateResult(isUpdate = true, credential = null, fetchFailed = true)
             }
         }
 
