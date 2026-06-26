@@ -19,6 +19,7 @@ import java.lang.ref.WeakReference
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.time.Duration.Companion.milliseconds
 
 class WebviewBridgeClient {
     private val gateway: IPromiseGateway
@@ -154,7 +155,7 @@ class WebviewBridgeClient {
     private suspend fun awaitReady(timeoutMs: Long) {
         if (gateway.isReady()) return
 
-        withTimeout(timeoutMs) {
+        withTimeout(timeoutMs.milliseconds) {
             suspendCancellableCoroutine { cont ->
                 if (gateway.isReady()) {
                     cont.resume(Unit)
@@ -194,7 +195,7 @@ class WebviewBridgeClient {
         ensureWebViewStarted()
         awaitReady(readyWaitMs.coerceAtMost(timeoutMs))
 
-        return withTimeout(timeoutMs) {
+        return withTimeout(timeoutMs.milliseconds) {
             suspendCancellableCoroutine { cont ->
                 val id = UUID.randomUUID().toString()
 
