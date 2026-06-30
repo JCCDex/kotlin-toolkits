@@ -291,6 +291,10 @@ open class WebAppInterface(
     private fun handleSwtcRequestAccounts(network: String, id: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Sync current chain to SWTC so app UI follows DApp network selection
+                if (ethMiddleware.currentChainType.value != com.jccdex.toolkits.core.model.ChainType.SWTC) {
+                    ethMiddleware.setCurrentChainType(com.jccdex.toolkits.core.model.ChainType.SWTC)
+                }
                 val accounts = swtcMiddleware.requestAccounts(getOrigin())
                 sendSuccessResponse(network, id, accounts)
             } catch (e: Exception) {
@@ -493,7 +497,7 @@ open class WebAppInterface(
 
     // ── helpers ──
 
-    private suspend fun getPrivateKeyOrFail(address: String): String {
+    protected open suspend fun getPrivateKeyOrFail(address: String): String {
         val sp = secretProvider
             ?: throw IllegalStateException("SecretProvider not configured")
         return sp.getPrivateKeyForAddress(address, getOrigin())
@@ -642,16 +646,22 @@ open class WebAppInterface(
                     put("total", result.total)
                     put("nfts", org.json.JSONArray().apply {
                         result.nfts.forEach { group ->
+                            val firstToken = group.tokens.firstOrNull()
                             put(org.json.JSONObject().apply {
+                                put("chainId", firstToken?.chainId ?: chainIdHex)
                                 put("contractAddress", group.contractAddress)
+                                put("name", firstToken?.name ?: "")
+                                put("symbol", org.json.JSONObject.NULL)
+                                put("standard", "ERC721")
+                                put("count", group.tokens.size)
                                 put("tokens", org.json.JSONArray().apply {
                                     group.tokens.forEach { token ->
                                         put(org.json.JSONObject().apply {
-                                            put("chainId", token.chainId)
-                                            put("contractAddress", token.contractAddress)
                                             put("tokenId", token.tokenId)
-                                            putOpt("name", token.name)
-                                            putOpt("image", token.imageUrl)
+                                            put("name", token.name ?: "")
+                                            put("description", "")
+                                            put("image", token.imageUrl ?: "")
+                                            put("tokenURI", org.json.JSONObject.NULL)
                                         })
                                     }
                                 })
