@@ -51,7 +51,7 @@ open class WebAppInterface(
     /**
      * Get the current DApp origin
      */
-    protected fun getOrigin(): String = dappOrigin
+    protected open fun getOrigin(): String = dappOrigin
 
     /**
      * Set chain provider for chain switching
@@ -76,7 +76,7 @@ open class WebAppInterface(
      * Main entry point for DApp messages
      */
     @JavascriptInterface
-    fun postMessage(json: String) {
+    open fun postMessage(json: String) {
         val obj = JSONObject(json)
         Log.d(TAG, "postMessage: $json")
 
