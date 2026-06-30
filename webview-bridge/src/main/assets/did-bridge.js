@@ -19,13 +19,35 @@
     Secp256k1DidKeypair,
     EthrDidDocument,
     SwtcDidDocument,
-    BaseNftVC,
     issueCredential,
-    ETHER_NFTOWNERSHIP_CONTEXT,
-    SWTC_NFTOWNERSHIP_CONTEXT,
-    ETHER_NFT_USAGE_AUTHORIZATION_CONTEXT,
-    SWTC_NFT_USAGE_AUTHORIZATION_CONTEXT
+    issueVC,
+    verifyVC,
+    createDocumentLoader,
+    CCDAO_NFT_OWNERSHIP_CONTEXT,
+    JDID_NFT_OWNERSHIP_CONTEXT,
+    CCDAO_NFT_USAGE_AUTHORIZATION_CONTEXT,
+    JDID_NFT_USAGE_AUTHORIZATION_CONTEXT
   } = window.jcc_did;
+
+  const W3C_VC_CONTEXT_URL = "https://www.w3.org/2018/credentials/v1";
+
+  const NFT_CONTEXTS = {
+    ccdao: {
+      ownership: CCDAO_NFT_OWNERSHIP_CONTEXT,
+      usageAuthorization: CCDAO_NFT_USAGE_AUTHORIZATION_CONTEXT
+    },
+    jdid: {
+      ownership: JDID_NFT_OWNERSHIP_CONTEXT,
+      usageAuthorization: JDID_NFT_USAGE_AUTHORIZATION_CONTEXT
+    }
+  };
+
+  function nftContextFor(brand, contextType) {
+    var map = NFT_CONTEXTS[brand];
+    return contextType === "usageAuthorization"
+      ? map.usageAuthorization
+      : map.ownership;
+  }
 
   function bytesToHex(bytes) {
     let out = "";
@@ -68,7 +90,7 @@
         didObject: SwtcDid.fromIdentifier(did.substring(did.lastIndexOf(":") + 1)),
         resolver: swtcResolver,
         publisher: swtcPublisher,
-        nftContext: SWTC_NFTOWNERSHIP_CONTEXT
+        brand: "jdid"
       };
     }
     if (ethrResolver.supports(did)) {
@@ -76,7 +98,7 @@
         didObject: EthrDid.fromIdentifier(did.substring(did.lastIndexOf(":") + 1)),
         resolver: ethrResolver,
         publisher: ethrPublisher,
-        nftContext: ETHER_NFTOWNERSHIP_CONTEXT
+        brand: "ccdao"
       };
     }
     throw new Error("Unsupported DID method");
@@ -144,8 +166,8 @@
     // did_issueCredential 的钱包侧实现：DApp 端调用 @jccdex/did 的 issueVC，
     // 把 sign(data) 回调委托给钱包；data = { credential, keyDoc:{address,did,id},
     // compactProof, issuerObject, addSuiteContext, type }（documentLoader 在 JSON
-    // 序列化时被丢弃）。这里用私钥补齐 keyDoc 后跑完整 issueCredential 返回签名 VC。
-    // 自定义 @context 均以内联对象形式嵌在 credential 中，默认 documentLoader 即可。
+    // 序列化时被丢弃）。这里用私钥补齐 keyDoc，并从 credential["@context"] 重建
+    // documentLoader（与 issueVC 内部行为一致），再跑完整 issueCredential 返回签名 VC。
     async signCredential(params) {
       let {
         credential,
@@ -166,6 +188,9 @@
       if (typeof issueCredential !== "function") {
         throw new Error("issueCredential is not available in the DID runtime");
       }
+      if (typeof createDocumentLoader !== "function") {
+        throw new Error("createDocumentLoader is not available in the DID runtime");
+      }
       if (typeof credential === "string") {
         credential = JSON.parse(credential);
       }
@@ -180,11 +205,33 @@
         keyDoc.id
       );
 
+      // 重建 documentLoader。DApp 的 issueVC 传过来的 documentLoader 函数
+      // 被 JSON 序列化丢弃，这里用 credential["@context"] 重建等价 loader。
+      const docLoader = createDocumentLoader({
+        embeddedContexts: credential["@context"]
+      });
+
+      // 兼容旧版 DApp：其 @context 可能缺少 type 术语定义。
+      // jsonld v9 safe mode 要求 credential.type 中每个值都能在 @context 里解析。
+      // 这里按版本 URL 自动补全到最后一个内联 context 对象上。
+      if (Array.isArray(credential["@context"]) && Array.isArray(credential.type)) {
+        const ctxs = credential["@context"];
+        const inline = ctxs.filter(function (c) { return c && typeof c === "object"; }).pop();
+        if (inline && inline.version) {
+          var vcBase = inline.version.replace(/did\/v1$/, "vc/v1");
+          credential.type.forEach(function (t) {
+            if (t !== "VerifiableCredential" && !(t in inline)) {
+              inline[t] = vcBase + "#" + t;
+            }
+          });
+        }
+      }
+
       const signed = await issueCredential(
         realKeyDoc,
         credential,
         compactProof !== false,
-        null, // documentLoader：自定义 context 内联，默认 loader 可处理 W3C/套件 URL
+        docLoader,
         null, // purpose
         undefined, // expansionMap
         issuerObject || null,
@@ -219,6 +266,9 @@
       return rawKp.keyPair.sign(hash, { canonical: true }).toDER("hex");
     },
 
+    // 钱包侧本地签发 NFT VC（0.3.x）。BaseNftVC 在 0.3.x 已移除，改用 issueVC：
+    // 不传 sign 回调时 issueVC 直接用本地 keyDoc 调 issueCredential 完成签名。
+    // @context 走内联术语集（nftContextFor），与 DApp 端 buildNft*Descriptor 等价。
     async generateVC(params) {
       let { id, types, subject, privateKey, address, did, expirationDate, contextType } = params;
       if (!privateKey) {
@@ -236,7 +286,7 @@
           didObject,
           resolver: ethrResolver,
           publisher: ethrPublisher,
-          nftContext: ETHER_NFTOWNERSHIP_CONTEXT
+          brand: "ccdao"
         };
       } else if (jtWallet.isValidAddress(address)) {
         const didObject = SwtcDid.fromIdentifier(address);
@@ -245,41 +295,34 @@
           didObject,
           resolver: swtcResolver,
           publisher: swtcPublisher,
-          nftContext: SWTC_NFTOWNERSHIP_CONTEXT
+          brand: "jdid"
         };
       } else {
         throw new Error("Invalid address for DID generation");
       }
 
-      if (privateKey.length === 66) {
-        privateKey = privateKey.substring(2);
-      }
-
+      privateKey = normalizePrivateKey(privateKey);
       const keypair = Secp256k1DidKeypair.fromPrivateKey(privateKey);
       const rawKp = keypair.keypair();
       didString = didString || runtime.didObject.toString();
       const keyDoc = getKeyDoc(didString, rawKp, keypair.type(), didString + "#key-1");
-      const vc = new BaseNftVC();
-      vc.setId(id);
-      const nftContext =
-        contextType === "usageAuthorization"
-          ? runtime.resolver === swtcResolver
-            ? SWTC_NFT_USAGE_AUTHORIZATION_CONTEXT
-            : ETHER_NFT_USAGE_AUTHORIZATION_CONTEXT
-          : runtime.nftContext;
-      vc.addContext(nftContext);
 
-      for (const type of types) {
-        vc.addType(type);
-      }
-
-      vc.setSubject(subject);
+      const descriptor = {
+        types: Array.isArray(types) ? types : [types],
+        contexts: [W3C_VC_CONTEXT_URL, nftContextFor(runtime.brand, contextType)],
+        subject,
+        id
+      };
       if (expirationDate) {
-        vc.setExpirationDate(expirationDate);
+        descriptor.expirationDate = expirationDate;
       }
 
-      await vc.sign({ keyDoc });
-      return JSON.stringify(vc.toJSON());
+      const signed = await issueVC(descriptor, {
+        keyDoc,
+        compactProof: true,
+        addSuiteContext: true
+      });
+      return JSON.stringify(signed);
     },
 
     async verifyCredential(params) {
@@ -295,8 +338,26 @@
       }
 
       const runtime = resolveDidRuntime(ownerDid);
-      const vc = BaseNftVC.fromJSON(credentialJson);
-      return await vc.verify({ resolver: runtime.resolver });
+      const result = await verifyVC(credentialJson, { resolver: runtime.resolver });
+
+      // verifyVC 的 results/error 可能含不可序列化对象（Error、循环引用等），
+      // 这里裁剪成可 JSON 序列化的精简结构，避免 onPromiseResult 序列化失败。
+      const errToString = (e) => (e ? String(e.message || e) : undefined);
+      return {
+        verified: result.verified === true,
+        errorKind: result.errorKind,
+        error: errToString(result.error),
+        results: Array.isArray(result.results)
+          ? result.results.map((r) => ({
+              verified: r && r.verified === true,
+              verificationMethod:
+                r && r.verificationMethod
+                  ? r.verificationMethod.id || r.verificationMethod
+                  : undefined,
+              error: errToString(r && r.error)
+            }))
+          : undefined
+      };
     },
 
     async generateDidDoc(params) {
