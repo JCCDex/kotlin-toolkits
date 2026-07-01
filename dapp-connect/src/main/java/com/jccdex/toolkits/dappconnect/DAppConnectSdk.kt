@@ -111,6 +111,18 @@ object DAppConnectSdk {
         return "if (window._updateChainId) { window._updateChainId('$chainIdHex', '$rpcUrl'); }"
     }
 
+    // ── URL safety ──
+
+    /** Validate that [url] uses http/https and a well-formed host. Blocks file://, javascript:, etc. */
+    fun isSafeUrl(url: String): Boolean {
+        val pattern =
+            Regex(
+                "^(https?)://[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\\.?(:[0-9]{1,5})?(/.*)?$",
+                RegexOption.IGNORE_CASE
+            )
+        return pattern.matches(url) || android.util.Patterns.WEB_URL.matcher(url).matches()
+    }
+
     // ── internal ──
 
     private fun loadAssetAsString(resources: Resources, assetName: String): String =
