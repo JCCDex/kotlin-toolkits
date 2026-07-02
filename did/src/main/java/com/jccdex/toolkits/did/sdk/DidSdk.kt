@@ -1010,17 +1010,16 @@ class DidSdk internal constructor(
         }
     }
 
+    /**
+     * Resolve the owner DID for authoritative VC lookups (query, revocation check).
+     * Chain-first via [resolveDid] so deleted/revoked credentials are not served from stale local cache.
+     * Falls back to local storage when chain resolution is unavailable.
+     */
     private suspend fun resolveOwnerDidDocument(ownerDid: String): String? {
-        core.getDidDocument(ownerDid)?.doc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
+        resolveDid(ownerDid)
+            ?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
             ?.let { return it }
-        val chainDoc =
-            runCatching {
-                bridge.call(
-                    "didResolve",
-                    JSONObject().apply { put("did", ownerDid) }.toString()
-                )
-            }.getOrNull()
-        return chainDoc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
+        return core.getDidDocument(ownerDid)?.doc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
     }
 
     private suspend fun applyPreviousCid(
