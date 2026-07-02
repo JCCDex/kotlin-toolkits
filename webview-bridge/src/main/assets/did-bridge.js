@@ -211,22 +211,6 @@
         embeddedContexts: credential["@context"]
       });
 
-      // 兼容旧版 DApp：其 @context 可能缺少 type 术语定义。
-      // jsonld v9 safe mode 要求 credential.type 中每个值都能在 @context 里解析。
-      // 这里按版本 URL 自动补全到最后一个内联 context 对象上。
-      if (Array.isArray(credential["@context"]) && Array.isArray(credential.type)) {
-        const ctxs = credential["@context"];
-        const inline = ctxs.filter(function (c) { return c && typeof c === "object"; }).pop();
-        if (inline && inline.version) {
-          var vcBase = inline.version.replace(/did\/v1$/, "vc/v1");
-          credential.type.forEach(function (t) {
-            if (t !== "VerifiableCredential" && !(t in inline)) {
-              inline[t] = vcBase + "#" + t;
-            }
-          });
-        }
-      }
-
       const signed = await issueCredential(
         realKeyDoc,
         credential,
