@@ -10,6 +10,7 @@ import org.json.JSONObject
 object DidCredentialHelper {
     const val VC_TYPE_OWNERSHIP = "NFTOwnership"
     const val VC_TYPE_USAGE_AUTHORIZATION = "NFTUsageAuthorization"
+    const val VC_TYPE_FILE_ACCESS_AUTHORIZATION = "FileAccessAuthorization"
     const val STANDARD_JINGTUM_NFT = "jingtumNFT"
     const val STANDARD_ERC721 = "ERC-721"
     const val CONTEXT_TYPE_OWNERSHIP = "ownership"
@@ -116,7 +117,18 @@ object DidCredentialHelper {
         }
     }
 
-    fun ownerDidFromCredentialId(credentialId: String): String = credentialId.substringBefore("#nft", "")
+    fun ownerDidFromCredentialId(credentialId: String): String {
+        // NFT VCID: did:xxx#nft-...  File access VCID: did:xxx#file-access-...
+        val sep =
+            if ("#nft" in credentialId) {
+                "#nft"
+            } else if ("#file-access" in credentialId) {
+                "#file-access"
+            } else {
+                ""
+            }
+        return credentialId.substringBefore(sep, "")
+    }
 
     fun readCredentials(doc: String): JSONArray {
         return try {
