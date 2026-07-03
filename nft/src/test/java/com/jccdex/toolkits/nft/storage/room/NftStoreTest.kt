@@ -409,21 +409,27 @@ class NftStoreTest {
     @Test
     fun getInstance_returnsRoomBackedStore() =
         runTest {
-            val store = NftStore.getInstance(context)
+            val databaseName = "nft-store-inst-" + System.nanoTime()
+            val store = NftStore.getInstance(context, databaseName)
+            val database = NftRoomDatabase.getInstance(context, databaseName)
             val tokenId = "inst-${System.nanoTime()}"
 
-            store.upsertNftMeta(
-                NftMetaEntity(
-                    contract = "issuer",
-                    tokenId = tokenId,
-                    name = "from-instance",
-                    image = null,
-                    tokenUri = null,
-                    fullContent = null
+            try {
+                store.upsertNftMeta(
+                    NftMetaEntity(
+                        contract = "issuer",
+                        tokenId = tokenId,
+                        name = "from-instance",
+                        image = null,
+                        tokenUri = null,
+                        fullContent = null
+                    )
                 )
-            )
 
-            assertThat(store.getNftMeta("issuer", tokenId)?.name).isEqualTo("from-instance")
+                assertThat(store.getNftMeta("issuer", tokenId)?.name).isEqualTo("from-instance")
+            } finally {
+                database.close()
+            }
         }
 
     @Test

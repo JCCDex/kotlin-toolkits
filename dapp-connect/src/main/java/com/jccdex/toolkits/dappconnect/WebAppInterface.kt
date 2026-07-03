@@ -32,7 +32,8 @@ open class WebAppInterface(
     protected val swtcMiddleware: ISwtcMiddleware,
     protected val accountProvider: AccountProvider? = null,
     protected val secretProvider: SecretProvider? = null,
-    protected val nftProvider: NftProvider? = null
+    protected val nftProvider: NftProvider? = null,
+    private val didDocumentMutationListener: DidDocumentMutationListener? = null
 ) {
     companion object {
         private const val TAG = "WebAppInterface"
@@ -291,7 +292,6 @@ open class WebAppInterface(
     private fun handleSwtcRequestAccounts(network: String, id: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Sync current chain to SWTC so app UI follows DApp network selection
                 if (ethMiddleware.currentChainType.value != com.jccdex.toolkits.core.model.ChainType.SWTC) {
                     ethMiddleware.setCurrentChainType(com.jccdex.toolkits.core.model.ChainType.SWTC)
                 }
@@ -569,6 +569,7 @@ open class WebAppInterface(
                 val privateKey = getPrivateKeyOrFail(address)
                 val sig = didSdk.ipfsPersonalSign(privateKey, intArr)
                 sendSuccessResponse(network, id, sig)
+                didDocumentMutationListener?.onDidDocumentMutated()
             } catch (e: Exception) {
                 Log.e(TAG, "ipfs_personalSign failed", e)
                 sendErrorResponse(network, id, e.message ?: "Failed to sign")

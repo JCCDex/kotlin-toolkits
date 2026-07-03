@@ -71,9 +71,18 @@ object DAppConnectSdk {
         swtcMiddleware: ISwtcMiddleware,
         accountProvider: AccountProvider? = null,
         secretProvider: SecretProvider? = null,
-        nftProvider: NftProvider? = null
+        nftProvider: NftProvider? = null,
+        didDocumentMutationListener: DidDocumentMutationListener? = null
     ): WebAppInterface =
-        createWebAppInterfaceWithWebView(webView, ethMiddleware, swtcMiddleware, accountProvider, secretProvider, nftProvider)
+        createWebAppInterfaceWithWebView(
+            webView,
+            ethMiddleware,
+            swtcMiddleware,
+            accountProvider,
+            secretProvider,
+            nftProvider,
+            didDocumentMutationListener
+        )
 
     // ── Provider JS ──
 

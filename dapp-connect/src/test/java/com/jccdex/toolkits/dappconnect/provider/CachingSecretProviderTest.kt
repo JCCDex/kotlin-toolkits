@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.dappconnect.provider
 
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -9,7 +10,7 @@ import kotlin.test.assertNull
 
 class CachingSecretProviderTest {
 
-    private class SpySecretProvider : SecretProvider {
+    private open class SpySecretProvider : SecretProvider {
         var callCount = 0
         var lastAddress: String? = null
 
@@ -24,6 +25,54 @@ class CachingSecretProviderTest {
             lastAddress = address
             return "secret-$address"
         }
+    }
+
+    @Test
+    fun `concurrent calls for same address delegate once`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        val results =
+            (1..3).map {
+                async { cache.getPrivateKeyForAddress("0x123", "test") }
+            }.map { it.await() }
+
+        assertEquals(listOf("key-0x123", "key-0x123", "key-0x123"), results)
+        assertEquals(1, spy.callCount)
+    }
+
+    @Test
+    fun `concurrent secret calls for same address delegate once`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        val results =
+            (1..3).map {
+                async { cache.getSecretForAddress("0x123", "test") }
+            }.map { it.await() }
+
+        assertEquals(listOf("secret-0x123", "secret-0x123", "secret-0x123"), results)
+        assertEquals(1, spy.callCount)
+    }
+
+    @Test
+    fun `concurrent calls wait for in-flight delegate and reuse result`() = runTest {
+        val spy =
+            object : SpySecretProvider() {
+                override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
+                    delay(50)
+                    return super.getPrivateKeyForAddress(address, origin)
+                }
+            }
+        val cache = CachingSecretProvider(spy)
+
+        val results =
+            (1..3).map {
+                async { cache.getPrivateKeyForAddress("0x123", "test") }
+            }.map { it.await() }
+
+        assertEquals(listOf("key-0x123", "key-0x123", "key-0x123"), results)
+        assertEquals(1, spy.callCount)
     }
 
     @Test

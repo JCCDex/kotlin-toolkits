@@ -217,10 +217,12 @@
         }
     };
 
-    // 更新选中地址的全局函数
+    // 更新选中地址的全局函数（地址未变时不触发 accountsChanged，避免 WebView 重复注入误触发 DApp 刷新）
     window._updateSelectedAddress = function(address) {
-        if (address) {
-            state.accounts = [address];
+        if (!address) return;
+        const oldAddress = state.accounts[0];
+        state.accounts = [address];
+        if (oldAddress !== address) {
             provider.emit('accountsChanged', [address]);
         }
     };
@@ -228,8 +230,10 @@
     // SWTC 账户变更：DApp 通过 window.ccdao.on('swtcAccountsChanged', ...) 监听
     // EVM 用 accountsChanged，SWTC 用 swtcAccountsChanged，两者分开避免串链。
     window._updateSwtcSelectedAddress = function(address) {
-        if (address) {
-            state.accounts = [address];
+        if (!address) return;
+        const oldAddress = state.accounts[0];
+        state.accounts = [address];
+        if (oldAddress !== address) {
             provider.emit('swtcAccountsChanged', [address]);
         }
     };

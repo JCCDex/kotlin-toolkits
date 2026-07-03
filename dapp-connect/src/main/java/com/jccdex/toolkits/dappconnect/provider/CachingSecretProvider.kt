@@ -6,6 +6,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Wraps a [SecretProvider] with batch-scoped result caching.
@@ -35,6 +37,8 @@ class CachingSecretProvider(
     private var activeOps = 0
     private var clearJob: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val privateKeyMutex = Mutex()
+    private val secretMutex = Mutex()
 
     @Synchronized
     private fun beginOp() { activeOps++; clearJob?.cancel(); clearJob = null }
@@ -67,22 +71,32 @@ class CachingSecretProvider(
     // ── SecretProvider ──
 
     override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
-        beginOp()
-        try {
+        return privateKeyMutex.withLock {
             cached(address)?.let { return it }
-            return delegate.getPrivateKeyForAddress(address, origin)?.also {
-                cache[address] = Entry(it, System.currentTimeMillis())
+            beginOp()
+            try {
+                cached(address)?.let { return it }
+                delegate.getPrivateKeyForAddress(address, origin)?.also {
+                    cache[address] = Entry(it, System.currentTimeMillis())
+                }
+            } finally {
+                endOp()
             }
-        } finally { endOp() }
+        }
     }
 
     override suspend fun getSecretForAddress(address: String, origin: String): String? {
-        beginOp()
-        try {
+        return secretMutex.withLock {
             cached(address)?.let { return it }
-            return delegate.getSecretForAddress(address, origin)?.also {
-                cache[address] = Entry(it, System.currentTimeMillis())
+            beginOp()
+            try {
+                cached(address)?.let { return it }
+                delegate.getSecretForAddress(address, origin)?.also {
+                    cache[address] = Entry(it, System.currentTimeMillis())
+                }
+            } finally {
+                endOp()
             }
-        } finally { endOp() }
+        }
     }
 }
