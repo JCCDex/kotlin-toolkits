@@ -15,8 +15,16 @@ abstract class WebAppInterfaceWithWebView(
     swtcMiddleware: ISwtcMiddleware,
     accountProvider: AccountProvider? = null,
     secretProvider: SecretProvider? = null,
-    nftProvider: NftProvider? = null
-) : WebAppInterface(ethMiddleware, swtcMiddleware, accountProvider, secretProvider, nftProvider) {
+    nftProvider: NftProvider? = null,
+    didDocumentMutationListener: DidDocumentMutationListener? = null
+) : WebAppInterface(
+    ethMiddleware,
+    swtcMiddleware,
+    accountProvider,
+    secretProvider,
+    nftProvider,
+    didDocumentMutationListener
+) {
 
     companion object {
         private const val TAG = "WebAppInterfaceWithWebView"
@@ -84,7 +92,16 @@ fun createWebAppInterfaceWithWebView(
     swtcMiddleware: ISwtcMiddleware,
     accountProvider: AccountProvider? = null,
     secretProvider: SecretProvider? = null,
-    nftProvider: NftProvider? = null
+    nftProvider: NftProvider? = null,
+    didDocumentMutationListener: DidDocumentMutationListener? = null
 ): WebAppInterface {
-    return object : WebAppInterfaceWithWebView(webView, ethMiddleware, swtcMiddleware, accountProvider, secretProvider, nftProvider) {}
+    return object : WebAppInterfaceWithWebView(
+        webView,
+        ethMiddleware,
+        swtcMiddleware,
+        accountProvider,
+        secretProvider,
+        nftProvider,
+        didDocumentMutationListener
+    ) {}
 }
