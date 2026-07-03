@@ -1473,7 +1473,7 @@ class DidSdkTest {
     }
 
     @Test
-    fun `addCredentialToDid skips publish when credential already exists`() =
+    fun `addCredentialToDid replaces existing credential instead of skipping`() =
         runTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val existingCredId = "$did#nft-0xAbcdEFABcdEFabcdEfAbCdefabcdeFABcDEFabCD-1-$did"
@@ -1513,11 +1513,14 @@ class DidSdkTest {
                     standard = DidCredentialHelper.STANDARD_ERC721,
                     contractAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
                 )
+            coEvery { bridge.call("generateVC", any()) } returns """{"id":"$existingCredId"}"""
+            coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+                PublishDidResult(code = "0", message = "ok")
 
             val result = localSdk.addCredentialToDid("secret", did, "", data)
 
             assertTrue(result.success)
-            coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+            coVerify { bridge.call("generateVC", any()) }
         }
 
     @Test
@@ -1724,11 +1727,13 @@ class DidSdkTest {
 
                     override suspend fun delete(did: String) = Unit
                 }
+            val resolver = mockk<IDidResolver>()
+            coEvery { resolver.resolve(ownerDid) } throws RuntimeException("offline")
             coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
                 DidSdk(
                     bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
+                    DidCoreService(store, resolver),
                     avatarResolver,
                     avatarCredentialSource
                 )
@@ -1740,12 +1745,53 @@ class DidSdkTest {
         }
 
     @Test
+    fun `queryAndValidateVcid returns invalid when local cache is stale but chain doc removed credential`() =
+        runTest {
+            val ownerDid = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+            val vcid = "$ownerDid#nft-0xabc-1-$ownerDid"
+            val staleCredential =
+                """
+                {
+                  "id":"$vcid",
+                  "type":["VerifiableCredential","NFTOwnership"],
+                  "credentialSubject":{"id":"$ownerDid","owner":"$ownerDid","tokenId":"1"}
+                }
+                """.trimIndent()
+            val staleDoc =
+                """{"updated":"2025-01-01T00:00:00Z","credentials":[$staleCredential]}"""
+            val freshDoc = """{"updated":"2026-07-02T00:00:00Z","credentials":[]}"""
+            val store = MemoryDidStore()
+            store.upsert(DidEntity(did = ownerDid, doc = staleDoc))
+            val resolver = mockk<IDidResolver>()
+            coEvery { resolver.resolve(ownerDid) } returns freshDoc
+            val localSdk =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, resolver),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            val result = localSdk.queryAndValidateVcid(vcid)
+
+            assertFalse(result.isValid)
+            assertNull(result.credential)
+        }
+
+    @Test
     fun `queryAndValidateVcid returns invalid when credential missing`() =
         runTest {
             val ownerDid = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
-            coEvery { bridge.call("didResolve", any()) } returns """{"credentials":[]}"""
+            val resolver = mockk<IDidResolver>()
+            coEvery { resolver.resolve(ownerDid) } returns """{"updated":"2026-07-02T00:00:00Z","credentials":[]}"""
 
-            val result = sdk.queryAndValidateVcid("$ownerDid#nft-0xmissing-1-$ownerDid")
+            val result =
+                DidSdk(
+                    bridge,
+                    DidCoreService(MemoryDidStore(), resolver),
+                    avatarResolver,
+                    avatarCredentialSource
+                ).queryAndValidateVcid("$ownerDid#nft-0xmissing-1-$ownerDid")
 
             assertFalse(result.isValid)
             assertNull(result.credential)

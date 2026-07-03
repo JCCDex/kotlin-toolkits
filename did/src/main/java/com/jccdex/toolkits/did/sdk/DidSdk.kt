@@ -254,6 +254,66 @@ class DidSdk internal constructor(
         }
     }
 
+    /**
+     * did_getBase58PublicKey：用私钥生成 base58 公钥与验证方法类型。
+     */
+    suspend fun didGenerateBase58PublicKey(privateKey: String): GenerateBase58PKResult =
+        withContext(Dispatchers.IO) {
+            bridge.callAs(
+                "generatePublicKeyBase58",
+                JSONObject().apply { put("privateKey", privateKey) }.toString(),
+                GenerateBase58PKResult::class.java
+            )
+        }
+
+    /**
+     * did_issueCredential 的钱包侧实现。
+     *
+     * [payload] 为 DApp 通过 @jccdex/did issueVC sign 回调传来的对象 JSON，含
+     * credential / keyDoc / compactProof / issuerObject / addSuiteContext / type。
+     * 这里补上 [privateKey] 后交由 JS 桥跑完整 issueCredential，返回签名后的 VC（JSON 字符串）。
+     */
+    suspend fun signCredentialForDApp(
+        privateKey: String,
+        payload: String
+    ): String =
+        withContext(Dispatchers.IO) {
+            val params =
+                JSONObject(payload).apply { put("privateKey", privateKey) }
+            bridge.call("signCredential", params.toString())
+        }
+
+    /**
+     * ipfs_getPublicKey：返回压缩 secp256k1 公钥（hex）。
+     */
+    suspend fun ipfsGetPublicKey(privateKey: String): String =
+        withContext(Dispatchers.IO) {
+            bridge.call(
+                "ipfsGetPublicKey",
+                JSONObject().apply { put("privateKey", privateKey) }.toString()
+            )
+        }
+
+    /**
+     * ipfs_personalSign：对带 IPFS 前缀的消息做 SHA-256 后 secp256k1 签名，返回 DER(hex)。
+     * [data] 为原始消息字节。
+     */
+    suspend fun ipfsPersonalSign(
+        privateKey: String,
+        data: IntArray
+    ): String =
+        withContext(Dispatchers.IO) {
+            val arr = JSONArray()
+            data.forEach { arr.put(it) }
+            bridge.call(
+                "ipfsPersonalSign",
+                JSONObject().apply {
+                    put("privateKey", privateKey)
+                    put("data", arr)
+                }.toString()
+            )
+        }
+
     suspend fun uploadInitialDidDoc(
         privateKey: String,
         did: String,
@@ -555,18 +615,22 @@ class DidSdk internal constructor(
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
                 val vcId = DidCredentialHelper.generateVcId(credentialData)
-                val credentials = DidCredentialHelper.readCredentials(doc)
-                if (DidCredentialHelper.findCredentialIndex(credentials, vcId) >= 0) {
-                    return@withContext DidWriteResult(success = true, didDocument = doc)
-                }
-
                 val vcJson = generateNftVc(privateKey, did, credentialData)
+                val credentials = DidCredentialHelper.readCredentials(doc)
+                val existingIndex = DidCredentialHelper.findCredentialIndex(credentials, vcId)
+
                 val json = JSONObject(doc)
                 val updatedCredentials = JSONArray()
                 for (index in 0 until credentials.length()) {
-                    updatedCredentials.put(credentials.getJSONObject(index))
+                    if (index == existingIndex) {
+                        updatedCredentials.put(JSONObject(vcJson))
+                    } else {
+                        updatedCredentials.put(credentials.getJSONObject(index))
+                    }
                 }
-                updatedCredentials.put(JSONObject(vcJson))
+                if (existingIndex < 0) {
+                    updatedCredentials.put(JSONObject(vcJson))
+                }
                 json.put("credentials", updatedCredentials)
                 json.put("updated", Instant.now().toString())
                 applyPreviousCid(json, did)
@@ -950,17 +1014,16 @@ class DidSdk internal constructor(
         }
     }
 
+    /**
+     * Resolve the owner DID for authoritative VC lookups (query, revocation check).
+     * Chain-first via [resolveDid] so deleted/revoked credentials are not served from stale local cache.
+     * Falls back to local storage when chain resolution is unavailable.
+     */
     private suspend fun resolveOwnerDidDocument(ownerDid: String): String? {
-        core.getDidDocument(ownerDid)?.doc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
+        resolveDid(ownerDid)
+            ?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
             ?.let { return it }
-        val chainDoc =
-            runCatching {
-                bridge.call(
-                    "didResolve",
-                    JSONObject().apply { put("did", ownerDid) }.toString()
-                )
-            }.getOrNull()
-        return chainDoc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
+        return core.getDidDocument(ownerDid)?.doc?.takeUnless { DidResolveUtils.isMissingDidDocument(it) }
     }
 
     private suspend fun applyPreviousCid(

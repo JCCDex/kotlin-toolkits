@@ -11,6 +11,7 @@ kotlin toolkits for jccdex
 - `:did`: DID SDK (document CRUD, NFT credential issue/verify/bind, authorized-avatar VCID binding, Room storage, NFT image resolution facade). Main API: `DidSdk`.
 - `:nft`: NFT storage / avatar SDK (metadata cache, avatar resolution, remote NFT image normalization). Main API: `NftSdk`.
 - `:wallet`: Wallet bridge SDK (mnemonic/derivation/signing helpers over hidden WebView). Main API: `WalletSdk`.
+- `:dapp-connect`: DApp connection SDK (WebView JS bridge, EIP-1193 provider injection, EVM/SWTC middleware, secret caching). Main API: `DAppConnectSdk`.
 
 ## DID
 
@@ -26,6 +27,7 @@ See `:did` documentation:
 - `kotlin-toolkits/webview-bridge/README.zh-CN.md`
 - `kotlin-toolkits/nft/README.zh-CN.md`
 - `kotlin-toolkits/wallet/README.zh-CN.md`
+- `kotlin-toolkits/dapp-connect/README.zh-CN.md`
 
 ## Test
 
@@ -36,4 +38,6 @@ See `:did` documentation:
 ./gradlew :webview-bridge:testDebugUnitTest
 ./gradlew :did:testDebugUnitTest
 ./gradlew :wallet:testDebugUnitTest
+./gradlew :nft:testDebugUnitTest
+./gradlew :dapp-connect:testDebugUnitTest
 ```
