@@ -1473,7 +1473,7 @@ class DidSdkTest {
     }
 
     @Test
-    fun `addCredentialToDid skips publish when credential already exists`() =
+    fun `addCredentialToDid replaces existing credential instead of skipping`() =
         runTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val existingCredId = "$did#nft-0xAbcdEFABcdEFabcdEfAbCdefabcdeFABcDEFabCD-1-$did"
@@ -1513,11 +1513,14 @@ class DidSdkTest {
                     standard = DidCredentialHelper.STANDARD_ERC721,
                     contractAddress = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
                 )
+            coEvery { bridge.call("generateVC", any()) } returns """{"id":"$existingCredId"}"""
+            coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+                PublishDidResult(code = "0", message = "ok")
 
             val result = localSdk.addCredentialToDid("secret", did, "", data)
 
             assertTrue(result.success)
-            coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+            coVerify { bridge.call("generateVC", any()) }
         }
 
     @Test
