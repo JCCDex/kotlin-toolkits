@@ -615,18 +615,22 @@ class DidSdk internal constructor(
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
                 val vcId = DidCredentialHelper.generateVcId(credentialData)
-                val credentials = DidCredentialHelper.readCredentials(doc)
-                if (DidCredentialHelper.findCredentialIndex(credentials, vcId) >= 0) {
-                    return@withContext DidWriteResult(success = true, didDocument = doc)
-                }
-
                 val vcJson = generateNftVc(privateKey, did, credentialData)
+                val credentials = DidCredentialHelper.readCredentials(doc)
+                val existingIndex = DidCredentialHelper.findCredentialIndex(credentials, vcId)
+
                 val json = JSONObject(doc)
                 val updatedCredentials = JSONArray()
                 for (index in 0 until credentials.length()) {
-                    updatedCredentials.put(credentials.getJSONObject(index))
+                    if (index == existingIndex) {
+                        updatedCredentials.put(JSONObject(vcJson))
+                    } else {
+                        updatedCredentials.put(credentials.getJSONObject(index))
+                    }
                 }
-                updatedCredentials.put(JSONObject(vcJson))
+                if (existingIndex < 0) {
+                    updatedCredentials.put(JSONObject(vcJson))
+                }
                 json.put("credentials", updatedCredentials)
                 json.put("updated", Instant.now().toString())
                 applyPreviousCid(json, did)
