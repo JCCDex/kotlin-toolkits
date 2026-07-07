@@ -15,11 +15,13 @@ import kotlinx.coroutines.sync.withLock
  * The first call to getPrivateKeyForAddress / getSecretForAddress for a given
  * address delegates to the underlying provider (e.g. prompting for password).
  * Subsequent calls for the same address within the bridge window reuse the
- * cached result without prompting.
+ * cached result without prompting. This collapses multi-step DApp flows
+ * (e.g. ipfs_getPublicKey followed by ipfs_personalSign, or did_issueCredential)
+ * into a single password prompt.
  *
  * Cache is cleared when:
- * - 5 seconds pass after the last in-flight operation ends (bridge window)
- * - Absolute TTL of 20 seconds from the initial cache
+ * - [BRIDGE_MS] pass after the last in-flight operation ends (bridge window)
+ * - Absolute TTL of [MAX_AGE_MS] from the initial cache entry
  * - Client calls [clearCache] (lifecycle stop / account switch)
  */
 class CachingSecretProvider(
@@ -29,6 +31,8 @@ class CachingSecretProvider(
     companion object {
         private const val BRIDGE_MS = 5_000L
         private const val MAX_AGE_MS = 20_000L
+        private const val PRIVATE_KEY_PREFIX = "pk:"
+        private const val SECRET_PREFIX = "sec:"
     }
 
     private data class Entry(val value: String, val at: Long)
@@ -41,7 +45,11 @@ class CachingSecretProvider(
     private val secretMutex = Mutex()
 
     @Synchronized
-    private fun beginOp() { activeOps++; clearJob?.cancel(); clearJob = null }
+    private fun beginOp() {
+        activeOps++
+        clearJob?.cancel()
+        clearJob = null
+    }
 
     @Synchronized
     private fun endOp() {
@@ -55,7 +63,8 @@ class CachingSecretProvider(
     private fun cached(key: String): String? {
         val entry = cache[key] ?: return null
         if (System.currentTimeMillis() - entry.at >= MAX_AGE_MS) {
-            cache.remove(key); return null
+            cache.remove(key)
+            return null
         }
         return entry.value
     }
@@ -68,16 +77,15 @@ class CachingSecretProvider(
         clearJob = null
     }
 
-    // ── SecretProvider ──
-
     override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
+        val cacheKey = "$PRIVATE_KEY_PREFIX$address"
         return privateKeyMutex.withLock {
-            cached(address)?.let { return it }
+            cached(cacheKey)?.let { return it }
             beginOp()
             try {
-                cached(address)?.let { return it }
+                cached(cacheKey)?.let { return it }
                 delegate.getPrivateKeyForAddress(address, origin)?.also {
-                    cache[address] = Entry(it, System.currentTimeMillis())
+                    cache[cacheKey] = Entry(it, System.currentTimeMillis())
                 }
             } finally {
                 endOp()
@@ -86,13 +94,14 @@ class CachingSecretProvider(
     }
 
     override suspend fun getSecretForAddress(address: String, origin: String): String? {
+        val cacheKey = "$SECRET_PREFIX$address"
         return secretMutex.withLock {
-            cached(address)?.let { return it }
+            cached(cacheKey)?.let { return it }
             beginOp()
             try {
-                cached(address)?.let { return it }
+                cached(cacheKey)?.let { return it }
                 delegate.getSecretForAddress(address, origin)?.also {
-                    cache[address] = Entry(it, System.currentTimeMillis())
+                    cache[cacheKey] = Entry(it, System.currentTimeMillis())
                 }
             } finally {
                 endOp()

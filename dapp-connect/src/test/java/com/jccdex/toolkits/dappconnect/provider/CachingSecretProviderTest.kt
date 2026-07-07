@@ -95,7 +95,7 @@ class CachingSecretProviderTest {
         val result = cache.getPrivateKeyForAddress("0x123", "test")
 
         assertEquals("key-0x123", result)
-        assertEquals(1, spy.callCount) // delegated only once
+        assertEquals(1, spy.callCount)
     }
 
     @Test
@@ -135,10 +135,19 @@ class CachingSecretProviderTest {
     }
 
     @Test
+    fun `private key and secret use separate cache entries`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        cache.getPrivateKeyForAddress("0x123", "test")
+        cache.getSecretForAddress("0x123", "test")
+
+        assertEquals(2, spy.callCount)
+    }
+
+    @Test
     fun `cache expires after max age`() = runTest {
         val spy = SpySecretProvider()
-        // 用反射或自定义小 TTL 测超时？当前实现 MAX_AGE_MS = 20_000。
-        // 这里验证 cache 命中：未超时不应重新调用 delegate。
         val cache = CachingSecretProvider(spy)
         cache.getPrivateKeyForAddress("0x123", "test")
         val result = cache.getPrivateKeyForAddress("0x123", "test")
@@ -149,10 +158,12 @@ class CachingSecretProviderTest {
 
     @Test
     fun `delegate returns null is not cached`() = runTest {
-        val alwaysNull = object : SecretProvider {
-            override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? = null
-            override suspend fun getSecretForAddress(address: String, origin: String): String? = null
-        }
+        val alwaysNull =
+            object : SecretProvider {
+                override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? = null
+
+                override suspend fun getSecretForAddress(address: String, origin: String): String? = null
+            }
         val cache = CachingSecretProvider(alwaysNull)
 
         assertNull(cache.getPrivateKeyForAddress("0x123", "test"))
