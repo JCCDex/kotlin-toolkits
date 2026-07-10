@@ -118,14 +118,12 @@ object DidCredentialHelper {
     }
 
     fun ownerDidFromCredentialId(credentialId: String): String {
-        // NFT VCID: did:xxx#nft-...  File access VCID: did:xxx#file-access-...
         val sep =
-            if ("#nft" in credentialId) {
-                "#nft"
-            } else if ("#file-access" in credentialId) {
-                "#file-access"
-            } else {
-                ""
+            when {
+                "#nft" in credentialId -> "#nft"
+                "#file-access" in credentialId -> "#file-access"
+                "#phone" in credentialId -> "#phone"
+                else -> ""
             }
         return credentialId.substringBefore(sep, "")
     }
