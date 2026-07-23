@@ -1,0 +1,29 @@
+---
+description: Protect existing unit tests from silent drift; require human confirmation before changing them
+alwaysApply: true
+---
+
+# Existing Unit Tests Are Locked by Default
+
+Existing unit tests are a **core contract** for already-shipped behavior. Changing them can hide regressions (silent drift).
+
+## Rules
+
+1. **Do not modify existing unit tests** when implementing features, refactors, or bug fixes — unless the user explicitly confirms.
+2. Prefer **adding new tests** for new behavior; leave old assertions untouched.
+3. If a change breaks existing tests:
+   - First assume the **product code** is wrong or incomplete.
+   - Do **not** “fix” tests to make green.
+   - Stop and **ask the user** before editing any existing `*Test.kt` / fixtures that alter expected behavior.
+4. Allowed without asking: **new** test files/methods only; build/CI/env config that does not change assertions.
+5. Changing tests that encode security or authorization behavior (vault, dapp-connect, wipe/auth, credential verify) **always** requires explicit human confirmation — even if the production API intentionally changes.
+
+## Examples
+
+```text
+❌ BAD: Feature X changes API → rewrite AccountOrchestratorTest expectations so CI passes
+✅ GOOD: Feature X → add new tests; if old tests fail, report failures and ask before touching them
+
+❌ BAD: Security fix makes unsigned VC fail → quietly flip bindVcidToDid success assertions
+✅ GOOD: Propose the assertion change, wait for user OK, then update
+```

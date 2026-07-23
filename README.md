@@ -29,6 +29,11 @@ See `:did` documentation:
 - `kotlin-toolkits/wallet/README.zh-CN.md`
 - `kotlin-toolkits/dapp-connect/README.zh-CN.md`
 
+## Docs
+
+- [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) — 安全审计报告
+- [docs/TEST_AUDIT.md](docs/TEST_AUDIT.md) — 测试体系审计报告
+
 ## Test
 
 ```bash

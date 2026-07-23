@@ -11,7 +11,8 @@ plugins {
 }
 
 jacoco {
-    toolVersion = "0.8.11"
+    // Align with AGP-bundled agent resolution; prefer versions already cached locally.
+    toolVersion = "0.8.13"
 }
 
 subprojects {
@@ -22,6 +23,10 @@ subprojects {
     }
 
     tasks.withType<Test>().configureEach {
+        systemProperty(
+            "robolectric.dependency.repo.url",
+            "https://maven.aliyun.com/repository/central",
+        )
         extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
             isIncludeNoLocationClasses = true
             excludes = listOf("jdk.internal.*")
