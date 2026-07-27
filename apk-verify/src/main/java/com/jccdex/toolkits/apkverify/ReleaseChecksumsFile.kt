@@ -36,8 +36,8 @@ object ReleaseChecksumsParser {
         return parse(text)
     }
 
-    /** Test-only entry point. */
-    internal fun parse(text: String): ReleaseChecksums? {
+    /** Parse checksums text content. */
+    fun parse(text: String): ReleaseChecksums? {
         val fields = mutableMapOf<String, String>()
 
         text.lineSequence().forEach { rawLine ->
