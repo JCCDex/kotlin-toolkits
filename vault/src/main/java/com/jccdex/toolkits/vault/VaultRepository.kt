@@ -307,23 +307,7 @@ class VaultRepository private constructor(
         if (!verified) {
             throw IllegalArgumentException("Password is wrong")
         }
-        if (!addressInKeys(address)) {
-            throw IllegalArgumentException("Private key is not exist")
-        }
-        val data = vaultStore.data.first()
-        val entry = data.keysList.first { it.address.equals(address, true) }
-        val key = derivedKey()
-        try {
-            val aad = getAddressAAD(address = address)
-            return AESCrypto.decrypt(
-                entry.iv.toByteArray(),
-                entry.ciphertext.toByteArray(),
-                key,
-                aad
-            )
-        } finally {
-            key.wipe()
-        }
+        return getPrivateKeyInternal(address)
     }
 
     suspend fun getSecret(
