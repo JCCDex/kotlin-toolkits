@@ -98,6 +98,10 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 禁止存储可逆加密的密码副本。
 3. 现有 vault 升级时迁移 proof 格式。
 
+**修复方案：** 详见 [`C02_PASSWORD_PROOF_FIX.md`](./C02_PASSWORD_PROOF_FIX.md)。核心思路：用 `HMAC-SHA256(derivedKey, domain_separator)` 替代 AES-GCM 加密密码。proof 不再包含密码原文，只能验证不能恢复。旧格式 vault 在 changePassword 时自动迁移。
+
+> C-02 是对 C-01 的防御性加固：C-01 解决 derivedKey 落盘后，proof 的敏感度已大幅降低；C-02 确保即使 derivedKey 在进程内泄漏，proof 也不会暴露明文密码。
+
 ---
 
 #### C-03：页面 JavaScript 可伪造 Native 响应回调

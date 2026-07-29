@@ -16,6 +16,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 import java.util.Locale.getDefault
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 
 class VaultRepository private constructor(
     private val vaultStore: DataStore<Vault>
@@ -50,21 +52,7 @@ class VaultRepository private constructor(
         val salt = data.password.salt.toByteArray()
         val params = Argon2idKdf.Params(data.password.iterations, data.password.memoryKib, data.password.parallelism)
         val key = Argon2idKdf.deriveKey(password, salt, params)
-        val valid =
-            try {
-                AESCrypto.decrypt(
-                    data.password.proofIv.toByteArray(),
-                    data.password.proofCt.toByteArray(),
-                    key,
-                    data.password.aad.toByteArray()
-                )
-                true
-            } catch (
-                _: Throwable
-            ) {
-                false
-            }
-        if (!valid) {
+        if (!verifyProof(key, data.password)) {
             key.wipe()
             password.wipe()
             return false
@@ -74,7 +62,39 @@ class VaultRepository private constructor(
         return true
     }
 
+    private fun verifyProof(
+        key: ByteArray,
+        env: PasswordEntry
+    ): Boolean {
+        return try {
+            if (env.proofIv.isEmpty) {
+                // New format: HMAC-SHA256
+                MessageDigest.isEqual(computeProof(key), env.proofCt.toByteArray())
+            } else {
+                // Old format: AES-GCM encrypted password
+                AESCrypto.decrypt(
+                    env.proofIv.toByteArray(),
+                    env.proofCt.toByteArray(),
+                    key,
+                    env.aad.toByteArray()
+                )
+                // AES-GCM auth is sufficient — wrong key → AEADBadTagException
+                true
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun computeProof(key: ByteArray): ByteArray {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(key, "HmacSHA256"))
+        return mac.doFinal(PROOF_DOMAIN_SEPARATOR)
+    }
+
     companion object {
+        private val PROOF_DOMAIN_SEPARATOR = "CCDAO_VAULT_V1_PASSWORD_PROOF".toByteArray()
+
         @Volatile
         private var instance: VaultRepository? = null
 
@@ -111,7 +131,7 @@ class VaultRepository private constructor(
         val key = Argon2idKdf.deriveKey(password, salt, params)
 
         try {
-            val (iv, ct) = AESCrypto.encrypt(password, key, aad)
+            val proof = computeProof(key)
             val newEnv =
                 PasswordEntry
                     .newBuilder()
@@ -120,8 +140,8 @@ class VaultRepository private constructor(
                     .setMemoryKib(params.memoryKiB)
                     .setParallelism(params.parallelism)
                     .setAad(ByteString.copyFrom(aad))
-                    .setProofIv(ByteString.copyFrom(iv))
-                    .setProofCt(ByteString.copyFrom(ct))
+                    .setProofIv(ByteString.EMPTY)
+                    .setProofCt(ByteString.copyFrom(proof))
                     .setHasBiometricCache(false)
                     .build()
             vaultStore.updateData {
@@ -191,14 +211,18 @@ class VaultRepository private constructor(
         val key = derivedKey()
         val valid =
             try {
-                val pt =
-                    AESCrypto.decrypt(
-                        env.proofIv.toByteArray(),
-                        env.proofCt.toByteArray(),
-                        key,
-                        env.aad.toByteArray()
-                    )
-                MessageDigest.isEqual(pt, password)
+                if (env.proofIv.isEmpty) {
+                    verifyProof(key, env)
+                } else {
+                    val pt =
+                        AESCrypto.decrypt(
+                            env.proofIv.toByteArray(),
+                            env.proofCt.toByteArray(),
+                            key,
+                            env.aad.toByteArray()
+                        )
+                    MessageDigest.isEqual(pt, password)
+                }
             } catch (_: Throwable) {
                 false
             }
@@ -503,7 +527,7 @@ class VaultRepository private constructor(
             val vault = Vault.newBuilder()
             try {
                 val aad = data.password.aad.toByteArray()
-                val (iv, ct) = AESCrypto.encrypt(newPassword, newKey, aad)
+                val proof = computeProof(newKey)
                 vault.setPassword(
                     PasswordEntry
                         .newBuilder()
@@ -512,8 +536,8 @@ class VaultRepository private constructor(
                         .setMemoryKib(params.memoryKiB)
                         .setParallelism(params.parallelism)
                         .setAad(ByteString.copyFrom(aad))
-                        .setProofIv(ByteString.copyFrom(iv))
-                        .setProofCt(ByteString.copyFrom(ct))
+                        .setProofIv(ByteString.EMPTY)
+                        .setProofCt(ByteString.copyFrom(proof))
                         .setHasBiometricCache(false)
                         .build()
                 )

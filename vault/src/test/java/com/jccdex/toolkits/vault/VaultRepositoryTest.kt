@@ -564,4 +564,39 @@ class VaultRepositoryTest {
             vault.unlock(p)
             Assertions.assertThat(vault.getPrivateKeyInternal(a)).isEqualTo(k)
         }
+
+    // ── C-02: HMAC proof (irreversible) ──
+
+    @Test
+    fun test_c02_verifyPasswordHmac() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            Assertions.assertThat(vault.verifyPassword(password)).isTrue()
+            Assertions.assertThat(vault.verifyPassword("wrong".toByteArray())).isFalse()
+        }
+
+    @Test
+    fun test_c02_unlockWithHmacProof() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            Assertions.assertThat(vault.unlock(password)).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test
+    fun test_c02_changePasswordMigratesProof() =
+        runTest {
+            vault.clearAllData()
+            val oldPassword = "oldPassword123".toByteArray()
+            vault.initializePassword(oldPassword)
+            vault.unlock(oldPassword)
+            val newPassword = "newPassword456".toByteArray()
+            vault.changePassword(oldPassword, newPassword)
+            Assertions.assertThat(vault.verifyPassword(newPassword)).isTrue()
+            Assertions.assertThat(vault.verifyPassword(oldPassword)).isFalse()
+        }
 }
