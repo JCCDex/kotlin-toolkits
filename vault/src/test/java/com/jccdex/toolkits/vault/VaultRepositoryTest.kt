@@ -63,8 +63,6 @@ class VaultRepositoryTest {
     @After
     fun tearDown() {
         unmockkAll()
-        val f = appContext.dataStoreFile("vault.pb")
-        if (f.exists()) f.delete()
     }
 
     @Test
@@ -515,5 +513,55 @@ class VaultRepositoryTest {
                     vault.getBiometric()
                 }
             assert(afterClear.message?.contains("Biometric cache is not exist") == true)
+        }
+
+    // ── VaultSession + unlock/lock ──
+    @Test fun test_z1_isUnlockedAfterInit() =
+        runTest {
+            vault.clearAllData()
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.unlock(p)
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test fun test_z2_lockAfterInit() =
+        runTest {
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+        }
+
+    @Test fun test_z3_unlockAfterLock() =
+        runTest {
+            vault.clearAllData()
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.unlock(p)
+            vault.lock()
+            Assertions.assertThat(vault.unlock(p)).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test fun test_z4_unlockWrong() =
+        runTest {
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.lock()
+            Assertions.assertThat(vault.unlock("wrong".toByteArray())).isFalse()
+        }
+
+    @Test fun test_z5_lockUnlockCycle() =
+        runTest {
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            val k = "48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".toByteArray()
+            val a = "0x6db849ed4ce8fe95044bffbfe4d291af34b4445d".uppercase()
+            vault.importPrivateKey(a, k)
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+            vault.unlock(p)
+            Assertions.assertThat(vault.getPrivateKeyInternal(a)).isEqualTo(k)
         }
 }

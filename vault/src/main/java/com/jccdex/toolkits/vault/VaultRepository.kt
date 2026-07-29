@@ -22,6 +22,58 @@ class VaultRepository private constructor(
 ) {
     private val mutex = Mutex()
 
+    // ── VaultSession ──
+
+    class VaultSession(private val key: ByteArray) {
+        fun derivedKey(): ByteArray = key.copyOf()
+
+        fun destroy() {
+            key.wipe()
+        }
+    }
+
+    @Volatile
+    private var vaultSession: VaultSession? = null
+    val isUnlocked: Boolean get() = vaultSession != null
+
+    fun lock() {
+        vaultSession?.destroy()
+        vaultSession = null
+    }
+
+    suspend fun unlock(password: ByteArray): Boolean {
+        if (!hasPassword()) {
+            password.wipe()
+            return false
+        }
+        val data = vaultStore.data.first()
+        val salt = data.password.salt.toByteArray()
+        val params = Argon2idKdf.Params(data.password.iterations, data.password.memoryKib, data.password.parallelism)
+        val key = Argon2idKdf.deriveKey(password, salt, params)
+        val valid =
+            try {
+                AESCrypto.decrypt(
+                    data.password.proofIv.toByteArray(),
+                    data.password.proofCt.toByteArray(),
+                    key,
+                    data.password.aad.toByteArray()
+                )
+                true
+            } catch (
+                _: Throwable
+            ) {
+                false
+            }
+        if (!valid) {
+            key.wipe()
+            password.wipe()
+            return false
+        }
+        vaultSession = VaultSession(key)
+        password.wipe()
+        return true
+    }
+
     companion object {
         @Volatile
         private var instance: VaultRepository? = null
@@ -528,7 +580,8 @@ class VaultRepository private constructor(
         }
     }
 
-    private suspend fun derivedKey(): ByteArray = Hex.decode(vaultStore.data.first().derivedKey)
+    private suspend fun derivedKey(): ByteArray =
+        vaultSession?.derivedKey() ?: Hex.decode(vaultStore.data.first().derivedKey)
 
     private suspend fun lockedImportPrivateKey(
         address: String,
@@ -569,6 +622,7 @@ class VaultRepository private constructor(
 
     suspend fun clearAllData() =
         mutex.withLock {
+            lock()
             vaultStore.updateData {
                 Vault.getDefaultInstance()
             }

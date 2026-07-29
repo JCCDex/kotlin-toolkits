@@ -78,6 +78,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 每次使用时从 `password + salt + params` 重新派生密钥，用后立即 wipe。
 3. 如需性能，用 Keystore/生物识别包裹短期会话密钥，禁止持久化派生密钥。
 
+**状态：** ✅ Phase 1 已完成（2026-07-28）。SDK 新增 `VaultSession` + `unlock()` / `lock()` / `isUnlocked` API。接入方显式调 `unlock(password)` 后密钥存内存，进程死亡即销毁。`derivedKey()` 优先读 session，回退 proto 兼容旧数据。详见 [`VAULT_SESSION_REDESIGN.md`](./VAULT_SESSION_REDESIGN.md)。
+
 ---
 
 #### C-02：密码以可逆形式存储
