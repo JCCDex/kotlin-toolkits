@@ -167,6 +167,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 
 ### 3.2 High（高危）
 
+> 全部 H 级问题修复方案合并在一份文档中：**[`H_ISSUES_FIX_PLAN.md`](./H_ISSUES_FIX_PLAN.md)**（H-01 到 H-07）
+
 #### H-01：`CachingSecretProvider` 缓存键未包含 origin
 
 | 字段 | 内容 |

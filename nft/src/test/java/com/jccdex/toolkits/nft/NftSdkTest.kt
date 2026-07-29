@@ -7,6 +7,7 @@ import com.jccdex.toolkits.nft.model.ChainType
 import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.WalletAccount
+import com.jccdex.toolkits.nft.remote.SsrfGuard
 import com.jccdex.toolkits.nft.storage.room.EvmNftItemEntity
 import com.jccdex.toolkits.nft.storage.room.NftDao
 import com.jccdex.toolkits.nft.storage.room.NftMetaEntity
@@ -131,6 +132,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
+            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -182,6 +184,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
+            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -239,6 +242,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
+            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
             server.enqueue(MockResponse().setResponseCode(500))
             server.enqueue(
                 MockResponse()
@@ -280,6 +284,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
+            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -350,6 +355,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
+            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)

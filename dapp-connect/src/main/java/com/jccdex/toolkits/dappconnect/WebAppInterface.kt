@@ -86,7 +86,10 @@ open class WebAppInterface(
         }
 
         val obj = JSONObject(json)
-        Log.d(TAG, "postMessage: $json")
+        // Only log full JSON in debug builds; re-enable for local development.
+        if (false) {
+            Log.d(TAG, "postMessage: $json")
+        }
 
         val method = DAppMethod.fromValue(obj.getString("name"))
         val network = obj.getString("network")
@@ -422,7 +425,7 @@ open class WebAppInterface(
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val result = ethMiddleware.signTypedData(address, typedData, version)
+                    val result = ethMiddleware.signTypedData(address, typedData, version, getOrigin())
                     sendSuccessResponse(network, nonce, result)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in eth_signTypedData", e)
@@ -437,7 +440,7 @@ open class WebAppInterface(
     private fun handleEthGetEncryptionPublicKey(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.getEncryptionPublicKey(address)
+                val result = ethMiddleware.getEncryptionPublicKey(address, getOrigin())
                 sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_getEncryptionPublicKey", e)
@@ -449,7 +452,7 @@ open class WebAppInterface(
     private fun handleEthDecrypt(network: String, nonce: String, address: String, message: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.decrypt(address, message)
+                val result = ethMiddleware.decrypt(address, message, getOrigin())
                 sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_decrypt", e)
@@ -461,7 +464,7 @@ open class WebAppInterface(
     private fun handleEthSignTransaction(network: String, nonce: String, txParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.signTransaction(txParams)
+                val result = ethMiddleware.signTransaction(txParams, getOrigin())
                 val data = (result as? com.jccdex.toolkits.dappconnect.model.SignTransactionResult)?.data ?: result
                 sendSuccessResponse(network, nonce, data)
             } catch (e: Exception) {

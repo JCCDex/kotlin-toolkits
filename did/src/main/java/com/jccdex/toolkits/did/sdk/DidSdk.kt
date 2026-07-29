@@ -751,6 +751,8 @@ class DidSdk internal constructor(
                 val incoming = JSONObject(credentialJson)
                 val credentialId = incoming.optString("id")
                 require(credentialId.isNotBlank()) { "credential id is required" }
+                val vcResult = verifyCredential(credentialJson)
+                require(vcResult.verified) { "credential signature verification failed" }
 
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)

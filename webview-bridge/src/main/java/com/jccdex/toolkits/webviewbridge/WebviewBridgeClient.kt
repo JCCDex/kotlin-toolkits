@@ -106,7 +106,8 @@ class WebviewBridgeClient {
                 w.webChromeClient =
                     object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                            if (com.jccdex.toolkits.webviewbridge.BuildConfig.DEBUG) {
+                            // Console forwarding is disabled in this build; re-enable for debug only.
+                            if (false) {
                                 consoleMessage?.let {
                                     Log.d(
                                         config.consoleTag,

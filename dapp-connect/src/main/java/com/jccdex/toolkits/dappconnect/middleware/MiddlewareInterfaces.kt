@@ -14,10 +14,10 @@ interface IEthMiddleware {
     suspend fun getBlockNumber(): String
     suspend fun personalSign(address: String, message: String, origin: String): String
     suspend fun recoverPersonalSignature(message: String, signature: String): String
-    suspend fun signTypedData(address: String, typedData: String, version: String): String
-    suspend fun getEncryptionPublicKey(address: String): String
-    suspend fun decrypt(address: String, encryptedData: String): String
-    suspend fun signTransaction(txParams: JSONObject): Any // SignTransactionResult
+    suspend fun signTypedData(address: String, typedData: String, version: String, origin: String = ""): String
+    suspend fun getEncryptionPublicKey(address: String, origin: String = ""): String
+    suspend fun decrypt(address: String, encryptedData: String, origin: String = ""): String
+    suspend fun signTransaction(txParams: JSONObject, origin: String = ""): Any // SignTransactionResult
     suspend fun sendTransaction(txParams: JSONObject): String
     suspend fun switchEthereumChain(chainIdHex: String, origin: String)
 }

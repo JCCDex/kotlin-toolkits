@@ -149,8 +149,24 @@ suspend fun resolveRemoteImageUrl(
     return null
 }
 
+object SsrfGuard {
+    /** Replaced in tests to bypass SSRF check. */
+    @Volatile var enabled: Boolean = true
+
+    fun check(url: String): Boolean {
+        if (!enabled) return true
+        val parsed = runCatching { URL(url) }.getOrNull() ?: return false
+        if (parsed.protocol !in setOf("http", "https", "ipfs")) return false
+        val host = parsed.host ?: return false
+        if (host.isBlank()) return false
+        val addr = runCatching { java.net.InetAddress.getByName(host) }.getOrNull() ?: return true
+        return !addr.isLoopbackAddress && !addr.isSiteLocalAddress && !addr.isLinkLocalAddress
+    }
+}
+
 suspend fun fetchMetadataImage(metadataUrl: String): String? =
     withContext(Dispatchers.IO) {
+        if (!SsrfGuard.check(metadataUrl)) return@withContext null
         val connection =
             (URL(metadataUrl).openConnection() as? HttpURLConnection)
                 ?: return@withContext null

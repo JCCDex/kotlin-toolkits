@@ -49,6 +49,11 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DidSdkTest {
     private val bridge = mockk<IDidBridge>(relaxed = true)
+
+    init {
+        coEvery { bridge.call(any(), any()) } answers { """{"verified":true}""" }
+    }
+
     private val coreService = mockk<DidCoreService>(relaxed = true)
     private val avatarResolver = mockk<IDidAvatarResolver>(relaxed = true)
     private val avatarCredentialSource = mockk<IDidAvatarCredentialSource>(relaxed = true)

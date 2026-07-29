@@ -98,13 +98,15 @@ object DAppConnectSdk {
 
     /** Build the init JS: set chainId, rpcUrl, and selected address in the provider */
     fun loadInitJs(chainIdHex: String, rpcUrl: String): String {
+        val qChain = jsQuote(chainIdHex)
+        val qRpc = jsQuote(rpcUrl)
         return """
 (function () {
   try {
     if (window._ccdaoProviderState) {
-      window._ccdaoProviderState.chainId = '$chainIdHex';
-      window._ccdaoProviderState.rpcUrl = '$rpcUrl';
-      console.log('[CCDAO Init] Provider state updated: chainId=$chainIdHex rpcUrl=$rpcUrl');
+      window._ccdaoProviderState.chainId = $qChain;
+      window._ccdaoProviderState.rpcUrl = $qRpc;
+      console.log('[CCDAO Init] Provider state updated: chainId=$qChain rpcUrl=$qRpc');
     }
   } catch (e) {
     console.error('[CCDAO Init] Failed to update provider', e);
@@ -117,13 +119,17 @@ object DAppConnectSdk {
     /** Build JS to update the selected address in the provider */
     fun loadAddressJs(address: String, isSwtc: Boolean): String {
         val fn = if (isSwtc) "_updateSwtcSelectedAddress" else "_updateSelectedAddress"
-        return "if (window.$fn) { window.$fn('$address'); }"
+        return "if (window.$fn) { window.$fn(${jsQuote(address)}); }"
     }
 
     /** Build JS to update chainId and trigger chainChanged event */
     fun loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String): String {
-        return "if (window._updateChainId) { window._updateChainId('$chainIdHex', '$rpcUrl'); }"
+        return "if (window._updateChainId) { window._updateChainId(${jsQuote(chainIdHex)}, ${jsQuote(rpcUrl)}); }"
     }
+
+    /** Quote a string for safe embedding in a JS string literal (double-quoted). */
+    private fun jsQuote(s: String): String =
+        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
 
     /**
      * Render a drawable resource to a PNG data URI.
