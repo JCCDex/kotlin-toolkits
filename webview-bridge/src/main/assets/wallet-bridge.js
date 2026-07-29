@@ -294,12 +294,10 @@
         throw new Error('Transaction object (tx) is required');
       }
 
-      console.log('[signTransaction] Signing transaction:', JSON.stringify(tx));
 
       // 使用 wallet.sign 签名
       const signedTx = wallet.sign(tx, secret);
 
-      console.log('[signTransaction] Signed, blob length:', signedTx.blob.length);
 
       return signedTx.blob;
     },

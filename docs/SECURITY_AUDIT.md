@@ -141,6 +141,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. **短期：** WebView 独立进程、禁用调试、生产环境移除 console 转发与 bridge JS 中的 debug log。
 3. 传参使用句柄/引用，避免原始密钥字符串。
 
+**修复方案：** 详见 [`C04_WEBVIEW_KEY_LEAK_FIX.md`](./C04_WEBVIEW_KEY_LEAK_FIX.md)。短期：console 转发加 `BuildConfig.DEBUG` 守卫、清理 bridge JS debug log、release 脱敏日志、WebView 设置加固。长期签名迁移属架构重构，不在本次范围。
+
 ---
 
 #### C-05：钱包擦除无需密码验证
@@ -158,6 +160,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 1. 所有破坏性操作必须先 `verifyPassword()`。
 2. 配合显式用户确认 UI（如二次确认「输入 DELETE」）。
 3. 审计所有 `clearAllData` 调用点。
+
+**修复方案：** 详见 [`C05_CLEAR_WITHOUT_PASSWORD_FIX.md`](./C05_CLEAR_WITHOUT_PASSWORD_FIX.md)。`clearAllData` / `importHdWallet(clearExisting=true)` / `clearWalletData` 增加可选 `password` 参数——空参数向后兼容，传参则先验密码再执行。
 
 ---
 

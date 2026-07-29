@@ -208,12 +208,21 @@ class VaultRepository private constructor(
         }
         val data = vaultStore.data.first()
         val env = data.password
-        val key = derivedKey()
         val valid =
             try {
                 if (env.proofIv.isEmpty) {
-                    verifyProof(key, env)
+                    // HMAC format — always derive from input password (proof doesn't contain password)
+                    val key =
+                        Argon2idKdf.deriveKey(
+                            password,
+                            env.salt.toByteArray(),
+                            Argon2idKdf.Params(env.iterations, env.memoryKib, env.parallelism)
+                        )
+                    val result = verifyProof(key, env)
+                    key.wipe()
+                    result
                 } else {
+                    val key = derivedKey()
                     val pt =
                         AESCrypto.decrypt(
                             env.proofIv.toByteArray(),
@@ -221,13 +230,14 @@ class VaultRepository private constructor(
                             key,
                             env.aad.toByteArray()
                         )
-                    MessageDigest.isEqual(pt, password)
+                    val result = MessageDigest.isEqual(pt, password)
+                    key.wipe()
+                    result
                 }
             } catch (_: Throwable) {
                 false
             }
         password.wipe()
-        key.wipe()
         return valid
     }
 
@@ -644,8 +654,11 @@ class VaultRepository private constructor(
 
     private fun getSecretAAD(address: String): ByteArray = "secret:${address.lowercase()}".toByteArray()
 
-    suspend fun clearAllData() =
+    suspend fun clearAllData(password: ByteArray? = null) =
         mutex.withLock {
+            if (password != null && !verifyPassword(password)) {
+                throw IllegalArgumentException("Password is wrong")
+            }
             lock()
             vaultStore.updateData {
                 Vault.getDefaultInstance()

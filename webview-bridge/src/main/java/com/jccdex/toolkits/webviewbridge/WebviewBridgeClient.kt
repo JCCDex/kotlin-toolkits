@@ -106,11 +106,13 @@ class WebviewBridgeClient {
                 w.webChromeClient =
                     object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                            consoleMessage?.let {
-                                Log.d(
-                                    config.consoleTag,
-                                    "${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}}"
-                                )
+                            if (com.jccdex.toolkits.webviewbridge.BuildConfig.DEBUG) {
+                                consoleMessage?.let {
+                                    Log.d(
+                                        config.consoleTag,
+                                        "${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}}"
+                                    )
+                                }
                             }
                             return true
                         }

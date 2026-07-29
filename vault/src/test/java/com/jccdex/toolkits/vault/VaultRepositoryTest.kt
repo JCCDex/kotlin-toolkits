@@ -599,4 +599,36 @@ class VaultRepositoryTest {
             Assertions.assertThat(vault.verifyPassword(newPassword)).isTrue()
             Assertions.assertThat(vault.verifyPassword(oldPassword)).isFalse()
         }
+
+    // ── C-05: clearAllData password gate ──
+
+    @Test fun test_c05_clearAllDataWithCorrectPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            // Should not throw
+            vault.clearAllData(password)
+            Assertions.assertThat(vault.hasPassword()).isFalse()
+        }
+
+    @Test fun test_c05_clearAllDataWithWrongPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            assertFailsWith<IllegalArgumentException> {
+                vault.clearAllData("wrong".toByteArray())
+            }
+        }
+
+    @Test fun test_c05_clearAllDataWithoutPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            // Backward compat: no password → clear without verification
+            vault.clearAllData()
+            Assertions.assertThat(vault.hasPassword()).isFalse()
+        }
 }
