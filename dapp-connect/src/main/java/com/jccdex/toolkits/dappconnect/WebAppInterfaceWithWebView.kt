@@ -30,8 +30,8 @@ abstract class WebAppInterfaceWithWebView(
         private const val TAG = "WebAppInterfaceWithWebView"
     }
 
-    override fun sendSuccessResponse(network: String, id: String, result: Any?) {
-        super.sendSuccessResponse(network, id, result)
+    override fun sendSuccessResponse(network: String, nonce: String, result: Any?) {
+        super.sendSuccessResponse(network, nonce, result)
 
         val resultStr = when (result) {
             is JSONArray -> result.toString()
@@ -45,7 +45,7 @@ abstract class WebAppInterfaceWithWebView(
             else -> result.toString()
         }
 
-        val callback = "window.ccdao.sendResponse(\"$id\", $resultStr)"
+        val callback = "window.ccdao.sendResponse(\"$nonce\", $resultStr)"
         webView.post {
             webView.evaluateJavascript(callback) { value ->
                 android.util.Log.d(TAG, "Success response sent: $value")
@@ -53,15 +53,15 @@ abstract class WebAppInterfaceWithWebView(
         }
     }
 
-    override fun sendErrorResponse(network: String, id: String, error: String) {
-        super.sendErrorResponse(network, id, error)
+    override fun sendErrorResponse(network: String, nonce: String, error: String) {
+        super.sendErrorResponse(network, nonce, error)
 
         val errorObj = JSONObject().apply {
             put("code", -1)
             put("message", error)
         }
 
-        val callback = "window.ccdao.sendError(\"$id\", $errorObj)"
+        val callback = "window.ccdao.sendError(\"$nonce\", $errorObj)"
         webView.post {
             webView.evaluateJavascript(callback) { value ->
                 android.util.Log.d(TAG, "Error response sent: $value")
@@ -69,15 +69,15 @@ abstract class WebAppInterfaceWithWebView(
         }
     }
 
-    override fun sendErrorResponseWithCode(network: String, id: String, code: Int, error: String) {
-        android.util.Log.e(TAG, "Error response with code: network=$network, id=$id, code=$code, error=$error")
+    override fun sendErrorResponseWithCode(network: String, nonce: String, code: Int, error: String) {
+        android.util.Log.e(TAG, "Error response with code: network=$network, nonce=$nonce, code=$code, error=$error")
 
         val errorObj = JSONObject().apply {
             put("code", code)
             put("message", error)
         }
 
-        val callback = "window.ccdao.sendError(\"$id\", $errorObj)"
+        val callback = "window.ccdao.sendError(\"$nonce\", $errorObj)"
         webView.post {
             webView.evaluateJavascript(callback) { value ->
                 android.util.Log.d(TAG, "Error response with code sent: $value")

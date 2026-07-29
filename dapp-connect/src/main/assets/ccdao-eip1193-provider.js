@@ -48,10 +48,20 @@
         return [Array.from(u8), ...params.slice(1)];
     }
 
+    // crypto.randomUUID() polyfill
+    function randomUUID() {
+        return crypto.randomUUID?.() ??
+            'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                const r = crypto.getRandomValues(new Uint8Array(1))[0];
+                return (c === 'x' ? r & 15 : (r & 0x3 | 0x8)).toString(16);
+            });
+    }
+
     // 发送请求到 Native
     function sendToNative(method, params, callback) {
         const id = ++requestId;
-        window._ccdaoRequestQueue[id] = callback;
+        const nonce = randomUUID();
+        window._ccdaoRequestQueue[nonce] = callback;
         params = normalizeBinaryParams(method, params);
 
         const message = JSON.stringify({
@@ -59,6 +69,7 @@
             network: method.startsWith('swtc_') ? 'swtc' :
                      method.startsWith('eth_') || method.startsWith('wallet_') || method.startsWith('personal_') ? 'eth' : 'ccdao',
             id: String(id),
+            nonce: nonce,
             params: params || []
         });
 
@@ -66,23 +77,24 @@
             window._tw_.postMessage(message);
         } else {
             console.error('[CCDAO EIP-1193] _tw_ not available');
+            delete window._ccdaoRequestQueue[nonce];
             callback({ error: 'Bridge not available' });
         }
     }
 
     // 响应处理函数（由 Native 调用）
     window.ccdao = window.ccdao || {};
-    window.ccdao.sendResponse = function(id, result) {
-        const callback = window._ccdaoRequestQueue[id];
+    window.ccdao.sendResponse = function(nonce, result) {
+        const callback = window._ccdaoRequestQueue[nonce];
         if (callback) {
-            delete window._ccdaoRequestQueue[id];
+            delete window._ccdaoRequestQueue[nonce];
             callback({ result: result });
         }
     };
-    window.ccdao.sendError = function(id, error) {
-        const callback = window._ccdaoRequestQueue[id];
+    window.ccdao.sendError = function(nonce, error) {
+        const callback = window._ccdaoRequestQueue[nonce];
         if (callback) {
-            delete window._ccdaoRequestQueue[id];
+            delete window._ccdaoRequestQueue[nonce];
             callback({ error: error });
         }
     };

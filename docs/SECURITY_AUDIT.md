@@ -119,6 +119,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 请求 ID 使用 `crypto.randomUUID()`。
 3. 响应与 native 侧生成的 nonce 绑定，拒绝重复完成。
 
+**修复方案：** 详见 [`C03_REQUEST_NONCE_FIX.md`](./C03_REQUEST_NONCE_FIX.md)。核心思路：每个请求生成 `crypto.randomUUID()` nonce，回调队列 key 从猜得到的 `id` 改为不可猜的 `nonce`，native 响应时回传 nonce。约 30 行改动，JS + Native 各一处。
+
 ---
 
 #### C-04：私钥/助记词在 WebView JavaScript 堆中处理
