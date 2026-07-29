@@ -266,6 +266,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 
 ### 3.3 Medium（中危）
 
+> 全部 M 级问题修复方案合并在一份文档中：**[`M_ISSUES_FIX_PLAN.md`](./M_ISSUES_FIX_PLAN.md)**（M-01 到 M-18）
+
 | ID | 问题 | 位置 | 修复要点 |
 |----|------|------|----------|
 | M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt:132-156` | 验证时重跑 Argon2；失败计数与退避 |

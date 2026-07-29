@@ -7,15 +7,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
 
 class DidCoreService(
     private val store: IDidStore,
     private val resolver: IDidResolver
 ) {
-    private val pendingDeleteUpdated = mutableMapOf<String, String>()
-    private val pendingCreateDids = mutableSetOf<String>()
-    private val pendingUpdateAvatar = mutableMapOf<String, String>()
-    private val pendingUpdateNickname = mutableMapOf<String, String>()
+    private val pendingDeleteUpdated = ConcurrentHashMap<String, String>()
+    private val pendingCreateDids = ConcurrentHashMap.newKeySet<String>()
+    private val pendingUpdateAvatar = ConcurrentHashMap<String, String>()
+    private val pendingUpdateNickname = ConcurrentHashMap<String, String>()
 
     fun observeAll(): Flow<List<DidEntity>> = store.observeAll()
 

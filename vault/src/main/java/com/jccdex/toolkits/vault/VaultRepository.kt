@@ -320,35 +320,37 @@ class VaultRepository private constructor(
     }
 
     suspend fun importPrivateKeys(privateKeys: MutableList<VaultPrivateKeyImport>) {
-        try {
-            val keys =
-                privateKeys
-                    .filter { !addressInKeys(it.address) }
-                    .distinctBy { it.address.lowercase(getDefault()) }
-            val derivedKey = derivedKey()
-            val entries = mutableListOf<PrivateKeyEntry>()
-            for (key in keys) {
-                val aad = getAddressAAD(address = key.address)
-                val (iv, ct) = AESCrypto.encrypt(key.privateKey, derivedKey, aad)
-                val entry =
-                    PrivateKeyEntry
-                        .newBuilder()
-                        .setAddress(key.address)
-                        .setIv(ByteString.copyFrom(iv))
-                        .setCiphertext(ByteString.copyFrom(ct))
-                        .build()
-                entries.add(entry)
-            }
-
+        mutex.withLock {
             try {
-                vaultStore.updateData { vault ->
-                    vault.toBuilder().addAllKeys(entries).build()
+                val keys =
+                    privateKeys
+                        .filter { !addressInKeys(it.address) }
+                        .distinctBy { it.address.lowercase(getDefault()) }
+                val derivedKey = derivedKey()
+                val entries = mutableListOf<PrivateKeyEntry>()
+                for (key in keys) {
+                    val aad = getAddressAAD(address = key.address)
+                    val (iv, ct) = AESCrypto.encrypt(key.privateKey, derivedKey, aad)
+                    val entry =
+                        PrivateKeyEntry
+                            .newBuilder()
+                            .setAddress(key.address)
+                            .setIv(ByteString.copyFrom(iv))
+                            .setCiphertext(ByteString.copyFrom(ct))
+                            .build()
+                    entries.add(entry)
+                }
+
+                try {
+                    vaultStore.updateData { vault ->
+                        vault.toBuilder().addAllKeys(entries).build()
+                    }
+                } finally {
+                    derivedKey.wipe()
                 }
             } finally {
-                derivedKey.wipe()
+                privateKeys.forEach { it.privateKey.wipe() }
             }
-        } finally {
-            privateKeys.forEach { it.privateKey.wipe() }
         }
     }
 
@@ -558,6 +560,7 @@ class VaultRepository private constructor(
                     val pk =
                         AESCrypto.decrypt(e.iv.toByteArray(), e.ciphertext.toByteArray(), key, aadKey)
                     val (eIv, eCt) = AESCrypto.encrypt(pk, newKey, aadKey)
+                    pk.wipe()
                     vault
                         .addKeys(
                             PrivateKeyEntry
@@ -574,6 +577,7 @@ class VaultRepository private constructor(
                     val pk =
                         AESCrypto.decrypt(s.iv.toByteArray(), s.ciphertext.toByteArray(), key, aadSecret)
                     val (sIv, sCt) = AESCrypto.encrypt(pk, newKey, aadSecret)
+                    pk.wipe()
                     vault
                         .addSecrets(
                             SecretEntry
@@ -590,6 +594,7 @@ class VaultRepository private constructor(
                     val pt =
                         AESCrypto.decrypt(m.iv.toByteArray(), m.ciphertext.toByteArray(), key, aadMn)
                     val (mIv, mCt) = AESCrypto.encrypt(pt, newKey, aadMn)
+                    pt.wipe()
                     vault.addMnemonics(
                         MnemonicEntry
                             .newBuilder()

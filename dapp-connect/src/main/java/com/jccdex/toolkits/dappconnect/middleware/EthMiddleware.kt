@@ -36,7 +36,8 @@ class EthMiddleware(
         private const val TAG = "EthMiddleware"
     }
 
-    private var onAccountSwitched: ((String) -> Unit)? = null
+    @Volatile private var onAccountSwitched: ((String) -> Unit)? = null
+    @Volatile private var requestAccountsCallback: RequestAccountsCallback? = null
 
     // Current selected chain
     private val _currentChainType = MutableStateFlow(initialChain)
@@ -47,6 +48,13 @@ class EthMiddleware(
      */
     override fun setOnAccountSwitched(callback: (String) -> Unit) {
         onAccountSwitched = callback
+    }
+
+    /**
+     * Set callback for user approval before returning accounts (EIP-1193 connect flow)
+     */
+    override fun setRequestAccountsCallback(callback: RequestAccountsCallback?) {
+        requestAccountsCallback = callback
     }
 
     /**
@@ -63,6 +71,12 @@ class EthMiddleware(
      */
     override suspend fun requestAccounts(origin: String): JSONArray {
         Log.d(TAG, "requestAccounts called from origin: $origin, currentChain: ${_currentChainType.value.name}")
+
+        // Require user approval before returning accounts (EIP-1193)
+        val cb = requestAccountsCallback
+        if (cb != null && !cb.onRequestAccounts(origin)) {
+            throw UserRejectedException("User rejected the requestAccounts request")
+        }
 
         val accounts = accountProvider.accounts.first()
         val currentChain = _currentChainType.value

@@ -67,6 +67,7 @@ class RoomAccountStore(
     }
 
     override suspend fun setCurrentAccount(accountId: String) {
+        accountDao.getAccountById(accountId) ?: throw NoSuchElementException("Account not found: $accountId")
         currentAccountDao.setCurrentAccount(CurrentAccountEntity(accountId = accountId))
     }
 

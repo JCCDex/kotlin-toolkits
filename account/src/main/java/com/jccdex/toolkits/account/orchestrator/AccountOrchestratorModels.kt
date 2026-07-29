@@ -2,7 +2,6 @@ package com.jccdex.toolkits.account.orchestrator
 
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.Path
-import com.jccdex.toolkits.wallet.model.Keypair
 
 data class HdChildAccountId(
     val chain: ChainType,
@@ -19,5 +18,5 @@ data class DerivedSubAccount(
     val chain: ChainType,
     val path: Path,
     val rootAccountId: String,
-    val keypair: Keypair
+    val publicKey: String
 )

@@ -4,6 +4,11 @@ import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** Callback for requesting user approval before returning accounts to a DApp */
+fun interface RequestAccountsCallback {
+    suspend fun onRequestAccounts(origin: String): Boolean
+}
+
 /** Minimal interface for EVM middleware used by WebAppInterface */
 interface IEthMiddleware {
     val currentChainType: StateFlow<com.jccdex.toolkits.core.model.ChainType>
@@ -20,6 +25,7 @@ interface IEthMiddleware {
     suspend fun signTransaction(txParams: JSONObject, origin: String = ""): Any // SignTransactionResult
     suspend fun sendTransaction(txParams: JSONObject): String
     suspend fun switchEthereumChain(chainIdHex: String, origin: String)
+    fun setRequestAccountsCallback(callback: RequestAccountsCallback?)
 }
 
 /** Minimal interface for SWTC middleware used by WebAppInterface */
