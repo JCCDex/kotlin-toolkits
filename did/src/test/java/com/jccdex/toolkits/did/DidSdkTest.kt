@@ -41,6 +41,7 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -1840,6 +1841,7 @@ class DidSdkTest {
                 )
             } returns
                 com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+            coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
                 DidSdk(
                     bridge,
@@ -1892,6 +1894,7 @@ class DidSdkTest {
                 )
             } returns
                 com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+            coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
                 DidSdk(
                     bridge,
@@ -1962,5 +1965,49 @@ class DidSdkTest {
             assertTrue(result.success)
             assertTrue(result.didDocument.orEmpty().contains("\"preferredAvatar\":\"$credId\""))
             coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+        }
+
+    // ── M-15: signCredentialForDApp validates credential structure ──
+
+    @Test
+    fun `signCredentialForDApp rejects payload without credential`() =
+        runTest {
+            val payload = """{"privateKey":"ignored"}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    sdk.signCredentialForDApp("pk", payload)
+                }
+            assertTrue(ex.message!!.contains("Missing credential"))
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects credential without credentialSubject`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],"issuer":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    sdk.signCredentialForDApp("pk", payload)
+                }
+            assertTrue(ex.message!!.contains("credentialSubject"))
+        }
+
+    @Test
+    fun `signCredentialForDApp passes with valid credential`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val result = sdk.signCredentialForDApp("pk", payload)
+
+            assertEquals("""{"signed":true}""", result)
         }
 }

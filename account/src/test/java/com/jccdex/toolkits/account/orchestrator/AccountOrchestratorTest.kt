@@ -312,7 +312,7 @@ class AccountOrchestratorTest {
                     chain = ChainType.ETH,
                     path = Path(ChainType.ETH.bip44Code, index = 1),
                     rootAccountId = "missing-root",
-                    keypair = Keypair("pk", "pub")
+                    publicKey = "pub"
                 )
 
             val result = orchestrator.importSubAccount(derived, "sub")
@@ -333,7 +333,7 @@ class AccountOrchestratorTest {
                     chain = ChainType.ETH,
                     path = Path(ChainType.ETH.bip44Code, index = 1),
                     rootAccountId = root.id,
-                    keypair = Keypair("pk", "pub")
+                    publicKey = "pub"
                 )
 
             val result = orchestrator.importSubAccount(derived, "eth-sub")

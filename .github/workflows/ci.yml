@@ -40,3 +40,7 @@ jobs:
           ./gradlew :webview-bridge:testDebugUnitTest --no-daemon
           ./gradlew :did:testDebugUnitTest --no-daemon
           ./gradlew :wallet:testDebugUnitTest --no-daemon
+          ./gradlew :nft:testDebugUnitTest --no-daemon
+          ./gradlew :dapp-connect:testDebugUnitTest --no-daemon
+          ./gradlew :apk-verify:testDebugUnitTest --no-daemon
+          ./gradlew :app-update:testDebugUnitTest --no-daemon
