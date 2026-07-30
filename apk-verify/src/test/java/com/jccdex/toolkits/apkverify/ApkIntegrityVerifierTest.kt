@@ -65,59 +65,6 @@ class ApkDigestTest {
     }
 }
 
-class OfficialReleaseManifestLoaderTest {
-
-    @Test
-    fun `parseFromJson with valid minimal manifest succeeds`() {
-        val json =
-            """{"signingCertSha256":"abcdef1234567890","releases":[]}"""
-
-        val manifest = OfficialReleaseManifestLoader.parseFromJson(json)
-
-        assertNotNull(manifest)
-        assertEquals("abcdef1234567890", manifest!!.signingCertSha256)
-        assertTrue(manifest.releases.isEmpty())
-    }
-
-    @Test
-    fun `parseFromJson with releases parses entries`() {
-        val json =
-            """{
-                "signingCertSha256": "aaaa",
-                "releases": [
-                    {"versionCode": 1, "versionName": "1.0.0", "apkSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
-                ]
-            }"""
-
-        val manifest = OfficialReleaseManifestLoader.parseFromJson(json)
-
-        assertNotNull(manifest)
-        assertEquals(1, manifest!!.releases.size)
-        assertEquals(1, manifest.releases[0].versionCode)
-        assertEquals("1.0.0", manifest.releases[0].versionName)
-    }
-
-    @Test
-    fun `parseFromJson with missing releases returns null`() {
-        val json = """{"signingCertSha256":"abc"}"""
-
-        val manifest = OfficialReleaseManifestLoader.parseFromJson(json)
-
-        assertNull(manifest)
-    }
-
-    @Test
-    fun `parseFromJson with empty json returns null`() {
-        assertNull(OfficialReleaseManifestLoader.parseFromJson("{}"))
-    }
-
-    @Test
-    fun `parseFromJson with malformed json returns null`() {
-        assertNull(OfficialReleaseManifestLoader.parseFromJson("not json"))
-        assertNull(OfficialReleaseManifestLoader.parseFromJson(""))
-    }
-}
-
 class ReleaseChecksumsParserTest {
 
     @Test

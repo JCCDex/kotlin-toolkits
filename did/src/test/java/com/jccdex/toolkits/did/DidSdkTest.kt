@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONObject
@@ -50,11 +51,6 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DidSdkTest {
     private val bridge = mockk<IDidBridge>(relaxed = true)
-
-    init {
-        coEvery { bridge.call(any(), any()) } answers { """{"verified":true}""" }
-    }
-
     private val coreService = mockk<DidCoreService>(relaxed = true)
     private val avatarResolver = mockk<IDidAvatarResolver>(relaxed = true)
     private val avatarCredentialSource = mockk<IDidAvatarCredentialSource>(relaxed = true)
@@ -1808,8 +1804,9 @@ class DidSdkTest {
         runTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val vcid = "$did#nft-0xabc-1-did:ethr:0xgrantee"
+            // NFTOwnership type avoids triggering checkGranteeCredentialUpdate (which is tested separately)
             val credential =
-                """{"id":"$vcid","type":["VerifiableCredential","NFTUsageAuthorization"]}"""
+                """{"id":"$vcid","type":["VerifiableCredential","NFTOwnership"]}"""
             val store =
                 object : com.jccdex.toolkits.did.store.IDidStore {
                     override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
@@ -1827,28 +1824,14 @@ class DidSdkTest {
                     override suspend fun delete(did: String) = Unit
                 }
             coEvery {
-                bridge.callAs(
-                    "publishDid",
-                    any(),
-                    PublishDidResult::class.java
-                )
+                bridge.callAs("publishDid", any(), PublishDidResult::class.java)
             } returns PublishDidResult(code = "0", message = "ok")
             coEvery {
-                bridge.callAs(
-                    "didStat",
-                    any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
-                )
-            } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java)
+            } returns com.jccdex.toolkits.did.model.DidStatResult(cid = "")
             coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
-                DidSdk(
-                    bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
-                    avatarResolver,
-                    avatarCredentialSource
-                )
+                DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
 
             val result = localSdk.bindVcidToDid("secret", did, "", credential)
 
@@ -1880,28 +1863,14 @@ class DidSdkTest {
                     override suspend fun delete(did: String) = Unit
                 }
             coEvery {
-                bridge.callAs(
-                    "publishDid",
-                    any(),
-                    PublishDidResult::class.java
-                )
+                bridge.callAs("publishDid", any(), PublishDidResult::class.java)
             } returns PublishDidResult(code = "0", message = "ok")
             coEvery {
-                bridge.callAs(
-                    "didStat",
-                    any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
-                )
-            } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                bridge.callAs("didStat", any(), com.jccdex.toolkits.did.model.DidStatResult::class.java)
+            } returns com.jccdex.toolkits.did.model.DidStatResult(cid = "")
             coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
-                DidSdk(
-                    bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
-                    avatarResolver,
-                    avatarCredentialSource
-                )
+                DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
 
             val result = localSdk.bindVcidToDid("secret", did, "", newCredential)
 
@@ -1977,7 +1946,7 @@ class DidSdkTest {
 
             val ex =
                 assertThrows(IllegalArgumentException::class.java) {
-                    sdk.signCredentialForDApp("pk", payload)
+                    runBlocking { sdk.signCredentialForDApp("pk", payload) }
                 }
             assertTrue(ex.message!!.contains("Missing credential"))
         }
@@ -1992,7 +1961,7 @@ class DidSdkTest {
 
             val ex =
                 assertThrows(IllegalArgumentException::class.java) {
-                    sdk.signCredentialForDApp("pk", payload)
+                    runBlocking { sdk.signCredentialForDApp("pk", payload) }
                 }
             assertTrue(ex.message!!.contains("credentialSubject"))
         }

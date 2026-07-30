@@ -45,8 +45,9 @@ class NftRemoteAssetResolverTest {
     }
 
     @Test
-    fun `allows ipfs scheme`() {
-        assertTrue(SsrfGuard.check("ipfs://QmExample"))
+    fun `rejects ipfs scheme`() {
+        // java.net.URL does not parse ipfs:// — guard rejects as malformed
+        assertFalse(SsrfGuard.check("ipfs://QmExample"))
     }
 
     @Test

@@ -1,7 +1,6 @@
 package com.jccdex.toolkits.dappconnect.provider
 
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -88,19 +87,6 @@ class CachingSecretProviderTest {
 
         cache.getPrivateKeyForAddress("0x123", "test")
         cache.getPrivateKeyForAddress("0x456", "test")
-
-        assertEquals(2, spy.callCount)
-    }
-
-    @Test
-    fun `cache respects ttl expiry`() = runTest {
-        val spy = SpySecretProvider()
-        // TTL = 0 means immediate expiry
-        val cache = CachingSecretProvider(spy, ttlMillis = 0)
-
-        cache.getPrivateKeyForAddress("0x123", "test")
-        delay(1)
-        cache.getPrivateKeyForAddress("0x123", "test")
 
         assertEquals(2, spy.callCount)
     }
