@@ -86,7 +86,7 @@ class WalletSdkTest {
 
             assertThat(bridge.destroyed).isTrue()
             assertThat(
-                runCatching { runTest { WalletSdk.callJsMethod("generateMnemonic") } }
+                runCatching { WalletSdk.callJsMethod("generateMnemonic") }
                     .exceptionOrNull()
                     ?.message
             ).contains("WalletSdk is not initialized")

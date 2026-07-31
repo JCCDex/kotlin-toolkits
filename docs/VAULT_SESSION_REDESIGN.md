@@ -1,7 +1,8 @@
 # VaultSession 重构方案 v2
 
-> **后续落地（H-04 / App 解锁页）：** 详见 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md)。  
-> Phase 1 SDK API 已部分落地，但 `derivedKey()` 磁盘回退与 app 真正 `unlock` 接线仍待完成。
+> **现状说明（derivedKey / HMAC / 内存模型）：** 详见 [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md)。  
+> **H-04 / App 解锁页：** 详见 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md)。  
+> Phase 1 + H-04 已落地：`derivedKey()` 仅读 session，无磁盘回退；App 侧需 `unlock` 后才能解密。
 
 ## 1. 背景
 

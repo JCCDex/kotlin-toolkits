@@ -1,7 +1,7 @@
 # H-04：Vault Internal 读密钥 + 会话解锁修复方案
 
-**关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) H-04 / C-01，[VAULT_SESSION_REDESIGN.md](./VAULT_SESSION_REDESIGN.md)  
-**状态：** 🚧 实施中（2026-07-31）— Phase A/B/C 代码已落地，待联调验收
+**关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) H-04 / C-01，[VAULT_SESSION_REDESIGN.md](./VAULT_SESSION_REDESIGN.md)，[VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md)  
+**状态：** ✅ Phase A/B/C 已落地（2026-07-31）；密钥模型说明见 VAULT_KEY_MODEL
 
 ### 已落地摘要
 
