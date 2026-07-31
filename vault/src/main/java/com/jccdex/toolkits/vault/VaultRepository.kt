@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.dataStoreFile
-import com.google.crypto.tink.subtle.Hex
 import com.google.protobuf.ByteString
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.vault.security.AESCrypto
@@ -59,6 +58,12 @@ class VaultRepository private constructor(
         }
         vaultSession = VaultSession(key)
         password.wipe()
+        // Drop persisted derivedKey if present (C-01 / H-04): session key is memory-only.
+        if (data.derivedKey.isNotEmpty()) {
+            vaultStore.updateData { vault ->
+                vault.toBuilder().clearDerivedKey().build()
+            }
+        }
         return true
     }
 
@@ -148,9 +153,10 @@ class VaultRepository private constructor(
                 Vault
                     .newBuilder()
                     .setPassword(newEnv)
-                    .setDerivedKey(Hex.encode(key))
                     .build()
             }
+            lock()
+            vaultSession = VaultSession(key.copyOf())
         } finally {
             key.wipe()
             password.wipe()
@@ -222,15 +228,26 @@ class VaultRepository private constructor(
                     key.wipe()
                     result
                 } else {
-                    val key = derivedKey()
-                    val pt =
-                        AESCrypto.decrypt(
-                            env.proofIv.toByteArray(),
-                            env.proofCt.toByteArray(),
-                            key,
-                            env.aad.toByteArray()
+                    // Old AES proof format: derive from password (do not read disk derivedKey).
+                    val key =
+                        Argon2idKdf.deriveKey(
+                            password,
+                            env.salt.toByteArray(),
+                            Argon2idKdf.Params(env.iterations, env.memoryKib, env.parallelism)
                         )
-                    val result = MessageDigest.isEqual(pt, password)
+                    val result =
+                        try {
+                            val pt =
+                                AESCrypto.decrypt(
+                                    env.proofIv.toByteArray(),
+                                    env.proofCt.toByteArray(),
+                                    key,
+                                    env.aad.toByteArray()
+                                )
+                            MessageDigest.isEqual(pt, password)
+                        } catch (_: Throwable) {
+                            false
+                        }
                     key.wipe()
                     result
                 }
@@ -391,37 +408,15 @@ class VaultRepository private constructor(
         address: String,
         password: ByteArray
     ): ByteArray {
-        val verified = verifyPassword(password = password)
-        if (!verified) {
-            throw IllegalArgumentException("Password is wrong")
-        }
-        if (!addressInKeys(address)) {
-            throw IllegalArgumentException("Private key is not exist")
-        }
-        val data = vaultStore.data.first()
-        val entry = data.keysList.first { it.address.equals(address, true) }
-        val key = derivedKey()
-        try {
-            val aad = getAddressAAD(address = address)
-            return AESCrypto.decrypt(
-                entry.iv.toByteArray(),
-                entry.ciphertext.toByteArray(),
-                key,
-                aad
-            )
-        } finally {
-            key.wipe()
-        }
+        ensureUnlockedWithPassword(password)
+        return getPrivateKeyInternal(address)
     }
 
     suspend fun getSecret(
         address: String,
         password: ByteArray
     ): ByteArray {
-        val verified = verifyPassword(password = password)
-        if (!verified) {
-            throw IllegalArgumentException("Password is wrong")
-        }
+        ensureUnlockedWithPassword(password)
         if (!addressInSecrets(address)) {
             throw IllegalArgumentException("Secret is not exist")
         }
@@ -445,10 +440,7 @@ class VaultRepository private constructor(
         address: String,
         password: ByteArray
     ): ByteArray {
-        val verified = verifyPassword(password = password)
-        if (!verified) {
-            throw IllegalArgumentException("Password is wrong")
-        }
+        ensureUnlockedWithPassword(password)
         return getMnemonicInternal(address)
     }
 
@@ -526,7 +518,12 @@ class VaultRepository private constructor(
                 parallelism = 1
             )
     ) = mutex.withLock {
-        if (!verifyPassword(oldPassword)) {
+        if (!isUnlocked) {
+            if (!unlock(oldPassword)) {
+                newPassword.wipe()
+                throw IllegalArgumentException("Password is wrong")
+            }
+        } else if (!verifyPassword(oldPassword)) {
             newPassword.wipe()
             throw IllegalArgumentException("Password is wrong")
         }
@@ -553,7 +550,6 @@ class VaultRepository private constructor(
                         .setHasBiometricCache(false)
                         .build()
                 )
-                vault.setDerivedKey(Hex.encode(newKey))
 
                 for (e in data.keysList) {
                     val aadKey = getAddressAAD(address = e.address)
@@ -609,6 +605,8 @@ class VaultRepository private constructor(
                 }
                 val newData = vault.build()
                 vaultStore.updateData { newData }
+                lock()
+                vaultSession = VaultSession(newKey.copyOf())
             } finally {
                 key.wipe()
                 newKey.wipe()
@@ -619,8 +617,25 @@ class VaultRepository private constructor(
         }
     }
 
-    private suspend fun derivedKey(): ByteArray =
-        vaultSession?.derivedKey() ?: Hex.decode(vaultStore.data.first().derivedKey)
+    private fun derivedKey(): ByteArray =
+        vaultSession?.derivedKey()
+            ?: error("Vault is locked")
+
+    /**
+     * Unlock with [password] when locked; when already unlocked, verify [password].
+     * Always wipes the caller's [password] buffer.
+     */
+    private suspend fun ensureUnlockedWithPassword(password: ByteArray) {
+        val ok =
+            if (isUnlocked) {
+                verifyPassword(password)
+            } else {
+                unlock(password)
+            }
+        if (!ok) {
+            throw IllegalArgumentException("Password is wrong")
+        }
+    }
 
     private suspend fun lockedImportPrivateKey(
         address: String,

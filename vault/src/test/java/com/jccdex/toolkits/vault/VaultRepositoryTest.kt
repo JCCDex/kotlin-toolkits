@@ -554,6 +554,7 @@ class VaultRepositoryTest {
 
     @Test fun test_z5_lockUnlockCycle() =
         runTest {
+            vault.clearAllData()
             val p = "123456789ab@][".toByteArray()
             vault.initializePassword(p)
             val k = "48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".toByteArray()
@@ -630,5 +631,35 @@ class VaultRepositoryTest {
             // Backward compat: no password → clear without verification
             vault.clearAllData()
             Assertions.assertThat(vault.hasPassword()).isFalse()
+        }
+
+    @Test
+    fun test_h04_internalRequiresUnlock() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            val privateKey =
+                "48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".toByteArray()
+            val address = "0x6db849ed4ce8fe95044bffbfe4d291af34b4445d".uppercase()
+            vault.importPrivateKey(address, privateKey.copyOf())
+            vault.lock()
+            assertFailsWith<IllegalStateException> {
+                vault.getPrivateKeyInternal(address)
+            }
+            Assertions.assertThat(vault.unlock(password.copyOf())).isTrue()
+            Assertions.assertThat(vault.getPrivateKeyInternal(address)).isEqualTo(privateKey)
+        }
+
+    @Test
+    fun test_h04_unlockWorksWithoutPersistedDerivedKey() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password.copyOf())
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+            Assertions.assertThat(vault.unlock(password.copyOf())).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
         }
 }

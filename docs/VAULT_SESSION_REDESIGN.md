@@ -1,5 +1,8 @@
 # VaultSession 重构方案 v2
 
+> **后续落地（H-04 / App 解锁页）：** 详见 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md)。  
+> Phase 1 SDK API 已部分落地，但 `derivedKey()` 磁盘回退与 app 真正 `unlock` 接线仍待完成。
+
 ## 1. 背景
 
 当前 vault 模块在初始化时通过 Argon2id 派生加密密钥，以 hex 字符串写入 `protobuf.Vault.derivedKey`，后续所有加解密直接从磁盘读取此密钥。任何能访问 `vault.pb` 文件的攻击者都可以解密全部私钥/助记词/secret，绕过了用户密码保护。
@@ -172,7 +175,8 @@ suspend fun clearAllData() {
 
 ## 5. Phase 2: jdid 接入
 
-jdid 已有 `UnlockViewModel` + `UnlockProfileRepository`。
+jdid 已有 `UnlockViewModel` + `UnlockProfileRepository`。  
+**细则与验收见 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) Phase B**（含：预加载派生免二次解锁、`lockSession` 同步 `vault.lock()`）。
 
 | 文件 | 改动 |
 |------|------|
@@ -186,7 +190,8 @@ jdid 已有 `UnlockViewModel` + `UnlockProfileRepository`。
 
 ## 6. Phase 3: ccdao 接入
 
-ccdao 当前无冷启动解锁流程，需从零搭建。
+ccdao 当前无冷启动解锁流程，需从零搭建。  
+**细则与验收见 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) Phase C**（含：会话内派生免密、导出备份与后台锁定）。
 
 | 类型 | 文件 | 说明 |
 |------|------|------|

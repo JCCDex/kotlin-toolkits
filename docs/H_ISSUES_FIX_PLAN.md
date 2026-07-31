@@ -64,11 +64,19 @@ fun loadAddressJs(address: String, isSwtc: Boolean): String {
 
 ## H-04：getPrivateKeyInternal / getMnemonicInternal 应限制访问
 
-**问题：** 这两个 public 方法绕过密码认证。已有外部调用方（`AccountOrchestrator`、`ExportBackupUseCase`），但调用方自己做了密码验证。
+**问题：** 这两个 public 方法绕过密码认证；且 `derivedKey()` 在无 session 时仍回退磁盘 `derivedKey`，未真正关闭「未解锁可读密钥」。已有外部调用方（`AccountOrchestrator`、`ExportBackupUseCase`、jdid 派生/取钥）。
 
-**修复：** C-01 已处理（VaultSession 替代磁盘 key）。短期不改可见性（会 break 调用方），长期在 C-01 Phase 4 后改为 `internal`。
+**修复：** 见专用方案 [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md)。
 
-**状态：** ✅ 由 C-01 覆盖。
+要点：
+
+1. `require(isUnlocked)` + 去掉磁盘 key 回退；unlock 时迁移并清空旧 `derivedKey`。  
+2. 产品模型：冷启动解锁一次，会话内派生子钱包免密（对齐市面钱包）。  
+3. jdid：复用现有解锁页，补 `vault.unlock()` / `lock()`。  
+4. ccdao：新增进入 App 解锁页。  
+5. 长期将 `*Internal` 改为 `internal`。
+
+**状态：** ⏳ 待实施（C-01 Phase 1 仅部分覆盖，H-04 未关闭）。
 
 ---
 

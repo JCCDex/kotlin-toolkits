@@ -354,7 +354,7 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 | 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 |
 | 2 | 密码 proof 改为不可逆验证；迁移现有 vault | C-02 |
 | 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 |
-| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 |
+| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 → [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) |
 
 ### P1 — 短期（DApp 与桥接）
 
