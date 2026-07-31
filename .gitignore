@@ -43,3 +43,5 @@ CLAUDE.md
 
 # Cursor / Claude local agent config (do not commit)
 .claude/
+
+.cxx/

@@ -78,6 +78,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 每次使用时从 `password + salt + params` 重新派生密钥，用后立即 wipe。
 3. 如需性能，用 Keystore/生物识别包裹短期会话密钥，禁止持久化派生密钥。
 
+**状态：** ✅ Phase 1 已完成（2026-07-28）。SDK 新增 `VaultSession` + `unlock()` / `lock()` / `isUnlocked` API。接入方显式调 `unlock(password)` 后密钥存内存，进程死亡即销毁。`derivedKey()` 优先读 session，回退 proto 兼容旧数据。详见 [`VAULT_SESSION_REDESIGN.md`](./VAULT_SESSION_REDESIGN.md)。
+
 ---
 
 #### C-02：密码以可逆形式存储
@@ -96,6 +98,10 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 禁止存储可逆加密的密码副本。
 3. 现有 vault 升级时迁移 proof 格式。
 
+**修复方案：** 详见 [`C02_PASSWORD_PROOF_FIX.md`](./C02_PASSWORD_PROOF_FIX.md)。核心思路：用 `HMAC-SHA256(derivedKey, domain_separator)` 替代 AES-GCM 加密密码。proof 不再包含密码原文，只能验证不能恢复。旧格式 vault 在 changePassword 时自动迁移。
+
+> C-02 是对 C-01 的防御性加固：C-01 解决 derivedKey 落盘后，proof 的敏感度已大幅降低；C-02 确保即使 derivedKey 在进程内泄漏，proof 也不会暴露明文密码。
+
 ---
 
 #### C-03：页面 JavaScript 可伪造 Native 响应回调
@@ -112,6 +118,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 1. 不在 `window` 暴露完成回调；使用 `WebMessagePort` 或带 nonce 的 native→JS 单向通道。
 2. 请求 ID 使用 `crypto.randomUUID()`。
 3. 响应与 native 侧生成的 nonce 绑定，拒绝重复完成。
+
+**修复方案：** 详见 [`C03_REQUEST_NONCE_FIX.md`](./C03_REQUEST_NONCE_FIX.md)。核心思路：每个请求生成 `crypto.randomUUID()` nonce，回调队列 key 从猜得到的 `id` 改为不可猜的 `nonce`，native 响应时回传 nonce。约 30 行改动，JS + Native 各一处。
 
 ---
 
@@ -133,6 +141,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. **短期：** WebView 独立进程、禁用调试、生产环境移除 console 转发与 bridge JS 中的 debug log。
 3. 传参使用句柄/引用，避免原始密钥字符串。
 
+**修复方案：** 详见 [`C04_WEBVIEW_KEY_LEAK_FIX.md`](./C04_WEBVIEW_KEY_LEAK_FIX.md)。短期：console 转发加 `BuildConfig.DEBUG` 守卫、清理 bridge JS debug log、release 脱敏日志、WebView 设置加固。长期签名迁移属架构重构，不在本次范围。
+
 ---
 
 #### C-05：钱包擦除无需密码验证
@@ -151,9 +161,13 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 2. 配合显式用户确认 UI（如二次确认「输入 DELETE」）。
 3. 审计所有 `clearAllData` 调用点。
 
+**修复方案：** 详见 [`C05_CLEAR_WITHOUT_PASSWORD_FIX.md`](./C05_CLEAR_WITHOUT_PASSWORD_FIX.md)。`clearAllData` / `importHdWallet(clearExisting=true)` / `clearWalletData` 增加可选 `password` 参数——空参数向后兼容，传参则先验密码再执行。
+
 ---
 
 ### 3.2 High（高危）
+
+> 全部 H 级问题修复方案合并在一份文档中：**[`H_ISSUES_FIX_PLAN.md`](./H_ISSUES_FIX_PLAN.md)**（H-01 到 H-07）
 
 #### H-01：`CachingSecretProvider` 缓存键未包含 origin
 
@@ -252,6 +266,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 
 ### 3.3 Medium（中危）
 
+> 全部 M 级问题修复方案合并在一份文档中：**[`M_ISSUES_FIX_PLAN.md`](./M_ISSUES_FIX_PLAN.md)**（M-01 到 M-18）
+
 | ID | 问题 | 位置 | 修复要点 |
 |----|------|------|----------|
 | M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt:132-156` | 验证时重跑 Argon2；失败计数与退避 |
@@ -338,7 +354,7 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 | 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 |
 | 2 | 密码 proof 改为不可逆验证；迁移现有 vault | C-02 |
 | 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 |
-| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 |
+| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 → [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) |
 
 ### P1 — 短期（DApp 与桥接）
 

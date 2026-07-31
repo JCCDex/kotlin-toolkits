@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.wallet.sdk
 
+import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
 import com.jccdex.toolkits.wallet.model.Keypair
 import com.jccdex.toolkits.wallet.model.Mnemonic
@@ -42,8 +43,8 @@ class WalletSdkTest {
 
     @Test
     fun initialize_installsBridge_once() {
-        WalletSdk.initialize(androidx.test.core.app.ApplicationProvider.getApplicationContext())
-        WalletSdk.initialize(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        WalletSdk.initialize(ApplicationProvider.getApplicationContext())
+        WalletSdk.initialize(ApplicationProvider.getApplicationContext())
 
         assertThat(true).isTrue()
     }
@@ -85,7 +86,7 @@ class WalletSdkTest {
 
             assertThat(bridge.destroyed).isTrue()
             assertThat(
-                runCatching { kotlinx.coroutines.test.runTest { WalletSdk.callJsMethod("generateMnemonic") } }
+                runCatching { WalletSdk.callJsMethod("generateMnemonic") }
                     .exceptionOrNull()
                     ?.message
             ).contains("WalletSdk is not initialized")

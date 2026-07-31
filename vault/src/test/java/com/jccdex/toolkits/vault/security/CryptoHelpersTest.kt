@@ -5,11 +5,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.vault.Vault
 import com.jccdex.toolkits.vault.serializer.VaultSerializer
 import com.jccdex.toolkits.vault.util.wipe
+import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.ByteArrayOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
@@ -50,10 +52,10 @@ class CryptoHelpersTest {
 
     @Test
     fun `serializer can write and read empty vault`() =
-        kotlinx.coroutines.test.runTest {
+        runTest {
             val context = ApplicationProvider.getApplicationContext<Application>()
             val serializer = VaultSerializer(context)
-            val output = java.io.ByteArrayOutputStream()
+            val output = ByteArrayOutputStream()
 
             serializer.writeTo(Vault.getDefaultInstance(), output)
 

@@ -63,8 +63,6 @@ class VaultRepositoryTest {
     @After
     fun tearDown() {
         unmockkAll()
-        val f = appContext.dataStoreFile("vault.pb")
-        if (f.exists()) f.delete()
     }
 
     @Test
@@ -515,5 +513,153 @@ class VaultRepositoryTest {
                     vault.getBiometric()
                 }
             assert(afterClear.message?.contains("Biometric cache is not exist") == true)
+        }
+
+    // ── VaultSession + unlock/lock ──
+    @Test fun test_z1_isUnlockedAfterInit() =
+        runTest {
+            vault.clearAllData()
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.unlock(p)
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test fun test_z2_lockAfterInit() =
+        runTest {
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+        }
+
+    @Test fun test_z3_unlockAfterLock() =
+        runTest {
+            vault.clearAllData()
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.unlock(p)
+            vault.lock()
+            Assertions.assertThat(vault.unlock(p)).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test fun test_z4_unlockWrong() =
+        runTest {
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            vault.lock()
+            Assertions.assertThat(vault.unlock("wrong".toByteArray())).isFalse()
+        }
+
+    @Test fun test_z5_lockUnlockCycle() =
+        runTest {
+            vault.clearAllData()
+            val p = "123456789ab@][".toByteArray()
+            vault.initializePassword(p)
+            val k = "48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".toByteArray()
+            val a = "0x6db849ed4ce8fe95044bffbfe4d291af34b4445d".uppercase()
+            vault.importPrivateKey(a, k)
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+            vault.unlock(p)
+            Assertions.assertThat(vault.getPrivateKeyInternal(a)).isEqualTo(k)
+        }
+
+    // ── C-02: HMAC proof (irreversible) ──
+
+    @Test
+    fun test_c02_verifyPasswordHmac() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            Assertions.assertThat(vault.verifyPassword(password)).isTrue()
+            Assertions.assertThat(vault.verifyPassword("wrong".toByteArray())).isFalse()
+        }
+
+    @Test
+    fun test_c02_unlockWithHmacProof() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            Assertions.assertThat(vault.unlock(password)).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test
+    fun test_c02_changePasswordMigratesProof() =
+        runTest {
+            vault.clearAllData()
+            val oldPassword = "oldPassword123".toByteArray()
+            vault.initializePassword(oldPassword)
+            vault.unlock(oldPassword)
+            val newPassword = "newPassword456".toByteArray()
+            vault.changePassword(oldPassword, newPassword)
+            Assertions.assertThat(vault.verifyPassword(newPassword)).isTrue()
+            Assertions.assertThat(vault.verifyPassword(oldPassword)).isFalse()
+        }
+
+    // ── C-05: clearAllData password gate ──
+
+    @Test fun test_c05_clearAllDataWithCorrectPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            // Should not throw
+            vault.clearAllData(password)
+            Assertions.assertThat(vault.hasPassword()).isFalse()
+        }
+
+    @Test fun test_c05_clearAllDataWithWrongPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            assertFailsWith<IllegalArgumentException> {
+                vault.clearAllData("wrong".toByteArray())
+            }
+        }
+
+    @Test fun test_c05_clearAllDataWithoutPassword() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword".toByteArray()
+            vault.initializePassword(password)
+            // Backward compat: no password → clear without verification
+            vault.clearAllData()
+            Assertions.assertThat(vault.hasPassword()).isFalse()
+        }
+
+    @Test
+    fun test_h04_internalRequiresUnlock() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password)
+            val privateKey =
+                "48EF9848FB097FFD086E38B9EF54606E17CC77FBC89B158E270B8D0B13A45417".toByteArray()
+            val address = "0x6db849ed4ce8fe95044bffbfe4d291af34b4445d".uppercase()
+            vault.importPrivateKey(address, privateKey.copyOf())
+            vault.lock()
+            assertFailsWith<IllegalStateException> {
+                vault.getPrivateKeyInternal(address)
+            }
+            Assertions.assertThat(vault.unlock(password.copyOf())).isTrue()
+            Assertions.assertThat(vault.getPrivateKeyInternal(address)).isEqualTo(privateKey)
+        }
+
+    @Test
+    fun test_h04_unlockWorksWithoutPersistedDerivedKey() =
+        runTest {
+            vault.clearAllData()
+            val password = "testPassword123".toByteArray()
+            vault.initializePassword(password.copyOf())
+            vault.lock()
+            Assertions.assertThat(vault.isUnlocked).isFalse()
+            Assertions.assertThat(vault.unlock(password.copyOf())).isTrue()
+            Assertions.assertThat(vault.isUnlocked).isTrue()
         }
 }

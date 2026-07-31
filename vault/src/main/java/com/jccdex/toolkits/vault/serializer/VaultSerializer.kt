@@ -18,8 +18,13 @@ class VaultSerializer(
     override suspend fun readFrom(input: InputStream): Vault {
         val blob = input.readBytes()
         if (blob.isEmpty()) return defaultValue
+        if (blob.size > MAX_VAULT_SIZE) return defaultValue
         val pt = TinkManager.get(appContext).decrypt(blob, AESCrypto.VAULT_V1_AAD.toByteArray())
         return Vault.parseFrom(pt)
+    }
+
+    companion object {
+        private const val MAX_VAULT_SIZE = 10 * 1024 * 1024 // 10MB
     }
 
     override suspend fun writeTo(

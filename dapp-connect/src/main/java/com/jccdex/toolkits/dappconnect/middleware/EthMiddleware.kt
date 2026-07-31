@@ -36,7 +36,8 @@ class EthMiddleware(
         private const val TAG = "EthMiddleware"
     }
 
-    private var onAccountSwitched: ((String) -> Unit)? = null
+    @Volatile private var onAccountSwitched: ((String) -> Unit)? = null
+    @Volatile private var requestAccountsCallback: RequestAccountsCallback? = null
 
     // Current selected chain
     private val _currentChainType = MutableStateFlow(initialChain)
@@ -47,6 +48,13 @@ class EthMiddleware(
      */
     override fun setOnAccountSwitched(callback: (String) -> Unit) {
         onAccountSwitched = callback
+    }
+
+    /**
+     * Set callback for user approval before returning accounts (EIP-1193 connect flow)
+     */
+    override fun setRequestAccountsCallback(callback: RequestAccountsCallback?) {
+        requestAccountsCallback = callback
     }
 
     /**
@@ -63,6 +71,12 @@ class EthMiddleware(
      */
     override suspend fun requestAccounts(origin: String): JSONArray {
         Log.d(TAG, "requestAccounts called from origin: $origin, currentChain: ${_currentChainType.value.name}")
+
+        // Require user approval before returning accounts (EIP-1193)
+        val cb = requestAccountsCallback
+        if (cb != null && !cb.onRequestAccounts(origin)) {
+            throw UserRejectedException("User rejected the requestAccounts request")
+        }
 
         val accounts = accountProvider.accounts.first()
         val currentChain = _currentChainType.value
@@ -157,10 +171,10 @@ class EthMiddleware(
     /**
      * Get encryption public key for an address
      */
-    override suspend fun getEncryptionPublicKey(address: String): String {
+    override suspend fun getEncryptionPublicKey(address: String, origin: String): String {
         validateEvmAddress(address)
 
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, "")
+        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
             ?: throw IllegalStateException("Failed to get private key")
 
         return WalletSdk.getEncryptionPublicKey(privateKey)
@@ -169,9 +183,9 @@ class EthMiddleware(
     /**
      * Decrypt data for an address
      */
-    override suspend fun decrypt(address: String, encryptedData: String): String {
+    override suspend fun decrypt(address: String, encryptedData: String, origin: String): String {
         validateEvmAddress(address)
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, "")
+        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
             ?: throw IllegalStateException("Failed to get private key")
 
         return WalletSdk.decrypt(privateKey, encryptedData)
@@ -190,10 +204,11 @@ class EthMiddleware(
     override suspend fun signTypedData(
         address: String,
         typedData: String,
-        version: String
+        version: String,
+        origin: String
     ): String {
         validateEvmAddress(address)
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, "")
+        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
             ?: throw IllegalStateException("Failed to get private key")
 
         return WalletSdk.signTypedData(privateKey, typedData, version)
@@ -209,7 +224,7 @@ class EthMiddleware(
     /**
      * Sign a transaction without sending it
      */
-    override suspend fun signTransaction(txParams: JSONObject): SignTransactionResult {
+    override suspend fun signTransaction(txParams: JSONObject, origin: String): SignTransactionResult {
         val from = txParams.getString("from")
 
         // Verify account exists in wallet
@@ -317,7 +332,7 @@ class EthMiddleware(
         }
 
         // Get private key
-        val privateKey = secretProvider.getPrivateKeyForAddress(from, "")
+        val privateKey = secretProvider.getPrivateKeyForAddress(from, origin)
             ?: throw IllegalStateException("Failed to get private key")
 
         // Sign transaction using WalletSdk

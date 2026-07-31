@@ -6,12 +6,14 @@ import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.Did
 import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.DidEntity
+import com.jccdex.toolkits.did.model.DidStatResult
 import com.jccdex.toolkits.did.model.GenerateBase58PKResult
 import com.jccdex.toolkits.did.model.Nft
 import com.jccdex.toolkits.did.model.NftCredentialRestrictions
 import com.jccdex.toolkits.did.model.PublishDidResult
 import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
 import com.jccdex.toolkits.did.model.UsageRights
+import com.jccdex.toolkits.did.model.VerificationMethod
 import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.port.DidAvatarAsset
 import com.jccdex.toolkits.did.port.IDidAvatarCredentialSource
@@ -20,8 +22,11 @@ import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.sdk.DidSdk
 import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.service.IDidResolver
+import com.jccdex.toolkits.did.store.IDidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.jccdex.toolkits.did.util.DidCredentialHelper
+import com.jccdex.toolkits.nft.NftSdk
+import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.NftMetadataFields
 import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
@@ -34,17 +39,21 @@ import io.mockk.slot
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import com.jccdex.toolkits.nft.model.Nft as NftModel
 
 @RunWith(RobolectricTestRunner::class)
 class DidSdkTest {
@@ -54,7 +63,7 @@ class DidSdkTest {
     private val avatarCredentialSource = mockk<IDidAvatarCredentialSource>(relaxed = true)
     private val sdk = DidSdk(bridge, coreService, avatarResolver, avatarCredentialSource)
 
-    private class MemoryDidStore : com.jccdex.toolkits.did.store.IDidStore {
+    private class MemoryDidStore : IDidStore {
         private val state = MutableStateFlow<List<DidEntity>>(emptyList())
         private val items = linkedMapOf<String, DidEntity>()
 
@@ -185,13 +194,13 @@ class DidSdkTest {
         runTest {
             val resolver = mockk<IDidResolver>(relaxed = true)
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
+                object : IDidStore {
                     override fun observeAll() =
-                        kotlinx.coroutines.flow.flowOf(
+                        flowOf(
                             emptyList<DidEntity>()
                         )
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -270,7 +279,7 @@ class DidSdkTest {
                     updated = "2025-01-02 08:00:00",
                     verificationMethods =
                         listOf(
-                            com.jccdex.toolkits.did.model.VerificationMethod(
+                            VerificationMethod(
                                 id = "vm1",
                                 controller = did,
                                 type = "Ed25519",
@@ -469,12 +478,12 @@ class DidSdkTest {
                     chain = ChainType.ETH,
                     publicKey = "pub"
                 )
-            val fallbackNftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val fallbackNftSdk = mockk<NftSdk>()
             coEvery {
                 fallbackNftSdk.getAvatarCandidates(any())
             } returns
                 listOf(
-                    com.jccdex.toolkits.nft.model.AvatarCandidate(
+                    AvatarCandidate(
                         image = "https://example.com/avatar.png",
                         name = "avatar",
                         contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
@@ -502,11 +511,11 @@ class DidSdkTest {
     @Test
     fun `generateEthrNft uses nft sdk fallback`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             coEvery {
                 nftSdk.resolveEthrAvatar(any())
             } returns
-                com.jccdex.toolkits.nft.model.Nft(
+                NftModel(
                     contract = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
                     tokenId = "1",
                     name = "avatar",
@@ -543,12 +552,12 @@ class DidSdkTest {
     @Test
     fun `getAvatarNftCredentials uses nft sdk swtc branch`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             coEvery {
                 nftSdk.getAvatarCandidates(any())
             } returns
                 listOf(
-                    com.jccdex.toolkits.nft.model.AvatarCandidate(
+                    AvatarCandidate(
                         image = "https://example.com/avatar.png",
                         name = "avatar",
                         contract = "issuer",
@@ -561,7 +570,7 @@ class DidSdkTest {
                 )
             val sdkWithNft = DidSdk(bridge, coreService, null, null, nftSdk)
             val account =
-                com.jccdex.toolkits.did.model.WalletAccount(
+                WalletAccount(
                     address = "jcccc",
                     chain = ChainType.SWTC,
                     publicKey = "pub"
@@ -594,15 +603,15 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "cid")
+                DidStatResult(cid = "cid")
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) = null
 
@@ -668,9 +677,9 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
-            } returns com.jccdex.toolkits.did.model.DidStatResult(cid = "cid")
+            } returns DidStatResult(cid = "cid")
             val store = MemoryDidStore()
             val sdkWithStore =
                 DidSdk(
@@ -721,10 +730,10 @@ class DidSdkTest {
         runTest {
             val resolver = mockk<IDidResolver>(relaxed = true)
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -755,7 +764,7 @@ class DidSdkTest {
                     updated = "2025-01-02 08:00:00",
                     verificationMethods =
                         listOf(
-                            com.jccdex.toolkits.did.model.VerificationMethod(
+                            VerificationMethod(
                                 id = "vm1",
                                 controller = "did:ethr:0x123",
                                 type = "Ed25519",
@@ -774,10 +783,10 @@ class DidSdkTest {
             coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
                 PublishDidResult(code = "0", message = "ok")
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -814,10 +823,10 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "cid-1")
+                DidStatResult(cid = "cid-1")
             coEvery {
                 bridge.call(
                     "didResolve",
@@ -831,10 +840,10 @@ class DidSdkTest {
                 }
                 """.trimIndent()
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -893,10 +902,10 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "cid-1")
+                DidStatResult(cid = "cid-1")
             coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
                 PublishDidResult(code = "0", message = "ok")
             val localSdk =
@@ -944,7 +953,7 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } throws IllegalStateException("no stat")
             coEvery {
@@ -1022,10 +1031,10 @@ class DidSdkTest {
     fun `generateProfileVC returns swtc nft`() =
         runTest {
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1098,10 +1107,10 @@ class DidSdkTest {
     fun `generateProfileVC resolves swtc avatar vc on ethr did`() =
         runTest {
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1152,10 +1161,10 @@ class DidSdkTest {
     fun `generateProfileVC resolves ethr avatar vc on swtc did`() =
         runTest {
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1205,10 +1214,10 @@ class DidSdkTest {
     fun `generateProfileVC returns null when document is missing`() =
         runTest {
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) = null
 
@@ -1230,13 +1239,13 @@ class DidSdkTest {
     @Test
     fun `generateProfileVC fetches remote nft metadata when needed`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             coEvery { nftSdk.fetchAndCacheNftMeta(any(), any(), any()) } returns null
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1289,7 +1298,7 @@ class DidSdkTest {
     @Test
     fun `resolveCredentialImage delegates to nft sdk`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             coEvery {
                 nftSdk.resolveCredentialImage(
                     "ipfs://bafy-test/avatar.png",
@@ -1317,7 +1326,7 @@ class DidSdkTest {
     @Test
     fun `resolveCredentialImages delegates to nft sdk`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             val requests =
                 listOf(
                     CredentialImageRequest(
@@ -1350,7 +1359,7 @@ class DidSdkTest {
 
     @Test
     fun `extractSwtcMetadataUri delegates to nft sdk`() {
-        val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+        val nftSdk = mockk<NftSdk>()
         every {
             nftSdk.extractSwtcMetadataUri("""[{"TokenInfo":{"InfoType":"746f6b656e557269"}}]""")
         } returns "https://ipfs.jccdex.cn/ipfs/bafy-test/meta.json"
@@ -1372,7 +1381,7 @@ class DidSdkTest {
     @Test
     fun `fetchMetadataFields delegates to nft sdk`() =
         runTest {
-            val nftSdk = mockk<com.jccdex.toolkits.nft.NftSdk>()
+            val nftSdk = mockk<NftSdk>()
             val expected = NftMetadataFields("https://example.com/avatar.png", "avatar", "hello")
             coEvery { nftSdk.fetchMetadataFields("https://example.com/meta.json") } returns expected
             val localSdk =
@@ -1393,10 +1402,10 @@ class DidSdkTest {
             coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
                 PublishDidResult(code = "1", message = "failed")
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1434,10 +1443,10 @@ class DidSdkTest {
             } returns
                 GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) = null
 
@@ -1478,10 +1487,10 @@ class DidSdkTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val existingCredId = "$did#nft-0xAbcdEFABcdEFabcdEfAbCdefabcdeFABcDEFabCD-1-$did"
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1528,10 +1537,10 @@ class DidSdkTest {
         runTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1560,10 +1569,10 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                DidStatResult(cid = "")
             val localSdk =
                 DidSdk(
                     bridge,
@@ -1597,10 +1606,10 @@ class DidSdkTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val credId = "cred-1"
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1629,10 +1638,10 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                DidStatResult(cid = "")
             val localSdk =
                 DidSdk(
                     bridge,
@@ -1708,10 +1717,10 @@ class DidSdkTest {
                 }
                 """.trimIndent()
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         if (did == ownerDid) {
@@ -1802,13 +1811,14 @@ class DidSdkTest {
         runTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val vcid = "$did#nft-0xabc-1-did:ethr:0xgrantee"
+            // NFTOwnership type avoids triggering checkGranteeCredentialUpdate (which is tested separately)
             val credential =
-                """{"id":"$vcid","type":["VerifiableCredential","NFTUsageAuthorization"]}"""
+                """{"id":"$vcid","type":["VerifiableCredential","NFTOwnership"]}"""
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1821,27 +1831,14 @@ class DidSdkTest {
                     override suspend fun delete(did: String) = Unit
                 }
             coEvery {
-                bridge.callAs(
-                    "publishDid",
-                    any(),
-                    PublishDidResult::class.java
-                )
+                bridge.callAs("publishDid", any(), PublishDidResult::class.java)
             } returns PublishDidResult(code = "0", message = "ok")
             coEvery {
-                bridge.callAs(
-                    "didStat",
-                    any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
-                )
-            } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                bridge.callAs("didStat", any(), DidStatResult::class.java)
+            } returns DidStatResult(cid = "")
+            coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
-                DidSdk(
-                    bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
-                    avatarResolver,
-                    avatarCredentialSource
-                )
+                DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
 
             val result = localSdk.bindVcidToDid("secret", did, "", credential)
 
@@ -1857,10 +1854,10 @@ class DidSdkTest {
             val oldCredential = """{"id":"$vcid","expirationDate":"2025-01-01T00:00:00Z"}"""
             val newCredential = """{"id":"$vcid","expirationDate":"2027-01-01T00:00:00Z"}"""
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1873,27 +1870,14 @@ class DidSdkTest {
                     override suspend fun delete(did: String) = Unit
                 }
             coEvery {
-                bridge.callAs(
-                    "publishDid",
-                    any(),
-                    PublishDidResult::class.java
-                )
+                bridge.callAs("publishDid", any(), PublishDidResult::class.java)
             } returns PublishDidResult(code = "0", message = "ok")
             coEvery {
-                bridge.callAs(
-                    "didStat",
-                    any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
-                )
-            } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                bridge.callAs("didStat", any(), DidStatResult::class.java)
+            } returns DidStatResult(cid = "")
+            coEvery { bridge.call("verifyCredential", any()) } returns """{"verified":true}"""
             val localSdk =
-                DidSdk(
-                    bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
-                    avatarResolver,
-                    avatarCredentialSource
-                )
+                DidSdk(bridge, DidCoreService(store, mockk(relaxed = true)), avatarResolver, avatarCredentialSource)
 
             val result = localSdk.bindVcidToDid("secret", did, "", newCredential)
 
@@ -1908,10 +1892,10 @@ class DidSdkTest {
             val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
             val credId = "$did#nft-0xabc-1-$did"
             val store =
-                object : com.jccdex.toolkits.did.store.IDidStore {
-                    override fun observeAll() = kotlinx.coroutines.flow.flowOf(emptyList<DidEntity>())
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
 
-                    override fun observe(did: String) = kotlinx.coroutines.flow.flowOf(null)
+                    override fun observe(did: String) = flowOf(null)
 
                     override suspend fun get(did: String) =
                         DidEntity(
@@ -1940,10 +1924,10 @@ class DidSdkTest {
                 bridge.callAs(
                     "didStat",
                     any(),
-                    com.jccdex.toolkits.did.model.DidStatResult::class.java
+                    DidStatResult::class.java
                 )
             } returns
-                com.jccdex.toolkits.did.model.DidStatResult(cid = "")
+                DidStatResult(cid = "")
             val localSdk =
                 DidSdk(
                     bridge,
@@ -1957,5 +1941,49 @@ class DidSdkTest {
             assertTrue(result.success)
             assertTrue(result.didDocument.orEmpty().contains("\"preferredAvatar\":\"$credId\""))
             coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+        }
+
+    // ── M-15: signCredentialForDApp validates credential structure ──
+
+    @Test
+    fun `signCredentialForDApp rejects payload without credential`() =
+        runTest {
+            val payload = """{"privateKey":"ignored"}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking { sdk.signCredentialForDApp("pk", payload) }
+                }
+            assertTrue(ex.message!!.contains("Missing credential"))
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects credential without credentialSubject`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],"issuer":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking { sdk.signCredentialForDApp("pk", payload) }
+                }
+            assertTrue(ex.message!!.contains("credentialSubject"))
+        }
+
+    @Test
+    fun `signCredentialForDApp passes with valid credential`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val result = sdk.signCredentialForDApp("pk", payload)
+
+            assertEquals("""{"signed":true}""", result)
         }
 }

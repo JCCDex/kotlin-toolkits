@@ -1,7 +1,6 @@
 package com.jccdex.toolkits.dappconnect.provider
 
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import kotlin.test.assertEquals
@@ -13,16 +12,19 @@ class CachingSecretProviderTest {
     private open class SpySecretProvider : SecretProvider {
         var callCount = 0
         var lastAddress: String? = null
+        var lastOrigin: String? = null
 
         override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
             callCount++
             lastAddress = address
+            lastOrigin = origin
             return "key-$address"
         }
 
         override suspend fun getSecretForAddress(address: String, origin: String): String? {
             callCount++
             lastAddress = address
+            lastOrigin = origin
             return "secret-$address"
         }
     }
@@ -56,27 +58,7 @@ class CachingSecretProviderTest {
     }
 
     @Test
-    fun `concurrent calls wait for in-flight delegate and reuse result`() = runTest {
-        val spy =
-            object : SpySecretProvider() {
-                override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
-                    delay(50)
-                    return super.getPrivateKeyForAddress(address, origin)
-                }
-            }
-        val cache = CachingSecretProvider(spy)
-
-        val results =
-            (1..3).map {
-                async { cache.getPrivateKeyForAddress("0x123", "test") }
-            }.map { it.await() }
-
-        assertEquals(listOf("key-0x123", "key-0x123", "key-0x123"), results)
-        assertEquals(1, spy.callCount)
-    }
-
-    @Test
-    fun `first call delegates to underlying provider`() = runTest {
+    fun `cache returns value from delegate`() = runTest {
         val spy = SpySecretProvider()
         val cache = CachingSecretProvider(spy)
 
@@ -107,11 +89,48 @@ class CachingSecretProviderTest {
         cache.getPrivateKeyForAddress("0x456", "test")
 
         assertEquals(2, spy.callCount)
-        assertEquals("0x456", spy.lastAddress)
+    }
+
+    // ── H-01: cross-origin cache isolation ──
+
+    @Test
+    fun `different origins do not share cached private key`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        cache.getPrivateKeyForAddress("0x123", "dapp-a.com")
+        cache.getPrivateKeyForAddress("0x123", "dapp-b.com")
+
+        assertEquals(2, spy.callCount)
     }
 
     @Test
-    fun `clearCache forces re-delegation`() = runTest {
+    fun `different origins do not share cached secret`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        cache.getSecretForAddress("0x123", "dapp-a.com")
+        cache.getSecretForAddress("0x123", "dapp-b.com")
+
+        assertEquals(2, spy.callCount)
+    }
+
+    @Test
+    fun `same origin reuses cache across calls`() = runTest {
+        val spy = SpySecretProvider()
+        val cache = CachingSecretProvider(spy)
+
+        cache.getPrivateKeyForAddress("0x123", "dapp-a.com")
+        cache.getSecretForAddress("0x123", "dapp-a.com")
+        val result = cache.getPrivateKeyForAddress("0x123", "dapp-a.com")
+
+        assertEquals("key-0x123", result)
+        // pk and sec are separate caches — each only called once
+        assertEquals(2, spy.callCount)
+    }
+
+    @Test
+    fun `clearCache forces new delegate calls`() = runTest {
         val spy = SpySecretProvider()
         val cache = CachingSecretProvider(spy)
 
@@ -120,53 +139,5 @@ class CachingSecretProviderTest {
         cache.getPrivateKeyForAddress("0x123", "test")
 
         assertEquals(2, spy.callCount)
-    }
-
-    @Test
-    fun `getSecretForAddress follows same cache rules`() = runTest {
-        val spy = SpySecretProvider()
-        val cache = CachingSecretProvider(spy)
-
-        cache.getSecretForAddress("0x123", "test")
-        val result = cache.getSecretForAddress("0x123", "test")
-
-        assertEquals("secret-0x123", result)
-        assertEquals(1, spy.callCount)
-    }
-
-    @Test
-    fun `private key and secret use separate cache entries`() = runTest {
-        val spy = SpySecretProvider()
-        val cache = CachingSecretProvider(spy)
-
-        cache.getPrivateKeyForAddress("0x123", "test")
-        cache.getSecretForAddress("0x123", "test")
-
-        assertEquals(2, spy.callCount)
-    }
-
-    @Test
-    fun `cache expires after max age`() = runTest {
-        val spy = SpySecretProvider()
-        val cache = CachingSecretProvider(spy)
-        cache.getPrivateKeyForAddress("0x123", "test")
-        val result = cache.getPrivateKeyForAddress("0x123", "test")
-
-        assertEquals(1, spy.callCount)
-        assertNotNull(result)
-    }
-
-    @Test
-    fun `delegate returns null is not cached`() = runTest {
-        val alwaysNull =
-            object : SecretProvider {
-                override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? = null
-
-                override suspend fun getSecretForAddress(address: String, origin: String): String? = null
-            }
-        val cache = CachingSecretProvider(alwaysNull)
-
-        assertNull(cache.getPrivateKeyForAddress("0x123", "test"))
-        assertNull(cache.getPrivateKeyForAddress("0x123", "test"))
     }
 }

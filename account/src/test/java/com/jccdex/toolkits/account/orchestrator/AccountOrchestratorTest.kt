@@ -7,6 +7,7 @@ import com.jccdex.toolkits.account.AccountTestFixtures
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.Path
 import com.jccdex.toolkits.vault.VaultRepository
+import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
 import com.jccdex.toolkits.wallet.model.Keypair
 import com.jccdex.toolkits.wallet.model.Mnemonic
@@ -245,7 +246,7 @@ class AccountOrchestratorTest {
             coEvery { vault.hasPassword() } returns true
             coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
             coEvery { vault.importPrivateKeys(any()) } returns Unit
-            val importedKeys = slot<MutableList<com.jccdex.toolkits.vault.model.VaultPrivateKeyImport>>()
+            val importedKeys = slot<MutableList<VaultPrivateKeyImport>>()
 
             val existingSub =
                 SubWallet(
@@ -312,7 +313,7 @@ class AccountOrchestratorTest {
                     chain = ChainType.ETH,
                     path = Path(ChainType.ETH.bip44Code, index = 1),
                     rootAccountId = "missing-root",
-                    keypair = Keypair("pk", "pub")
+                    publicKey = "pub"
                 )
 
             val result = orchestrator.importSubAccount(derived, "sub")
@@ -333,7 +334,7 @@ class AccountOrchestratorTest {
                     chain = ChainType.ETH,
                     path = Path(ChainType.ETH.bip44Code, index = 1),
                     rootAccountId = root.id,
-                    keypair = Keypair("pk", "pub")
+                    publicKey = "pub"
                 )
 
             val result = orchestrator.importSubAccount(derived, "eth-sub")

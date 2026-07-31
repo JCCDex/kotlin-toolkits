@@ -280,6 +280,18 @@ class DidSdk internal constructor(
         withContext(Dispatchers.IO) {
             val params =
                 JSONObject(payload).apply { put("privateKey", privateKey) }
+            val credential =
+                params.optJSONObject("credential")
+                    ?: throw IllegalArgumentException("Missing credential in payload")
+            require(credential.has("@context") || credential.has("type")) {
+                "Credential must have @context or type"
+            }
+            require(credential.has("credentialSubject")) {
+                "Credential must have credentialSubject"
+            }
+            require(credential.has("issuer") || params.has("issuerObject")) {
+                "Credential must have issuer or issuerObject"
+            }
             bridge.call("signCredential", params.toString())
         }
 
@@ -751,6 +763,8 @@ class DidSdk internal constructor(
                 val incoming = JSONObject(credentialJson)
                 val credentialId = incoming.optString("id")
                 require(credentialId.isNotBlank()) { "credential id is required" }
+                val vcResult = verifyCredential(credentialJson)
+                require(vcResult.verified) { "credential signature verification failed" }
 
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
@@ -803,6 +817,12 @@ class DidSdk internal constructor(
                 require(credentialId.isNotBlank()) { "credentialId is required" }
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
+                val creds = DidCredentialHelper.readCredentials(doc)
+                val found =
+                    (0 until creds.length()).any { i ->
+                        creds.optJSONObject(i)?.optString("id") == credentialId
+                    }
+                require(found) { "credential not found: $credentialId" }
                 val json = JSONObject(doc)
                 val services = readServices(json)
                 val updatedServices = JSONArray()

@@ -78,7 +78,7 @@ class CachingSecretProvider(
     }
 
     override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
-        val cacheKey = "$PRIVATE_KEY_PREFIX$address"
+        val cacheKey = "$PRIVATE_KEY_PREFIX$origin|$address"
         return privateKeyMutex.withLock {
             cached(cacheKey)?.let { return it }
             beginOp()
@@ -94,7 +94,7 @@ class CachingSecretProvider(
     }
 
     override suspend fun getSecretForAddress(address: String, origin: String): String? {
-        val cacheKey = "$SECRET_PREFIX$address"
+        val cacheKey = "$SECRET_PREFIX$origin|$address"
         return secretMutex.withLock {
             cached(cacheKey)?.let { return it }
             beginOp()

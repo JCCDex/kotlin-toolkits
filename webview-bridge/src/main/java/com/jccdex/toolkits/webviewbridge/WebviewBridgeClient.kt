@@ -78,7 +78,7 @@ class WebviewBridgeClient {
                 w.settings.apply {
                     javaScriptEnabled = true
                     domStorageEnabled = true
-                    allowFileAccess = true
+                    allowFileAccess = false
                     cacheMode = WebSettings.LOAD_NO_CACHE
                 }
 
@@ -86,6 +86,14 @@ class WebviewBridgeClient {
 
                 w.webViewClient =
                     object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: android.webkit.WebResourceRequest?
+                        ): Boolean {
+                            val url = request?.url?.toString().orEmpty()
+                            return !url.startsWith("file:///android_asset/")
+                        }
+
                         override fun onPageFinished(
                             view: WebView?,
                             url: String?
@@ -106,11 +114,14 @@ class WebviewBridgeClient {
                 w.webChromeClient =
                     object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                            consoleMessage?.let {
-                                Log.d(
-                                    config.consoleTag,
-                                    "${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}}"
-                                )
+                            // Console forwarding is disabled in this build; re-enable for debug only.
+                            if (false) {
+                                consoleMessage?.let {
+                                    Log.d(
+                                        config.consoleTag,
+                                        "${it.message()} -- From line ${it.lineNumber()} of ${it.sourceId()}}"
+                                    )
+                                }
                             }
                             return true
                         }

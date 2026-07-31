@@ -1,6 +1,8 @@
 package com.jccdex.toolkits.account.storage.room
 
 import com.jccdex.toolkits.core.model.ChainType
+import com.jccdex.toolkits.core.model.Path
+import com.jccdex.toolkits.core.model.WalletAccount
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 
@@ -54,7 +56,7 @@ class AccountEntityTest {
         val original =
             AccountEntity
                 .fromWalletAccount(
-                    com.jccdex.toolkits.core.model.WalletAccount(
+                    WalletAccount(
                         id = "round-trip",
                         address = "0xabc",
                         chain = ChainType.BSC,
@@ -62,7 +64,7 @@ class AccountEntityTest {
                         isHD = true,
                         parentId = "parent",
                         path =
-                            com.jccdex.toolkits.core.model.Path(
+                            Path(
                                 chain = ChainType.BSC.bip44Code,
                                 account = 1,
                                 change = 2,

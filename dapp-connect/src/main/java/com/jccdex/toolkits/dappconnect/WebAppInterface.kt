@@ -2,9 +2,13 @@ package com.jccdex.toolkits.dappconnect
 
 import android.util.Log
 import android.webkit.JavascriptInterface
+import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
+import com.jccdex.toolkits.dappconnect.model.ChainNotSupportedException
 import com.jccdex.toolkits.dappconnect.model.DAppMethod
+import com.jccdex.toolkits.dappconnect.model.SignTransactionResult
+import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.ChainProvider
 import com.jccdex.toolkits.dappconnect.provider.NftProvider
@@ -12,6 +16,7 @@ import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -78,26 +83,37 @@ open class WebAppInterface(
      */
     @JavascriptInterface
     open fun postMessage(json: String) {
+        // Silently reject messages from untrusted origins (when origin is set)
+        val origin = getOrigin()
+        if (origin.isNotBlank() && !DAppConnectSdk.isSafeUrl(origin)) {
+            Log.w(TAG, "postMessage rejected: unsafe origin=$origin")
+            return
+        }
+
         val obj = JSONObject(json)
-        Log.d(TAG, "postMessage: $json")
+        // Only log full JSON in debug builds; re-enable for local development.
+        if (false) {
+            Log.d(TAG, "postMessage: $json")
+        }
 
         val method = DAppMethod.fromValue(obj.getString("name"))
         val network = obj.getString("network")
         val id = obj.getString("id")
+        val nonce = obj.optString("nonce", id)
 
         when (method) {
             // SWTC RPC Methods
             DAppMethod.SWTC_REQUESTACCOUNTS -> {
-                handleSwtcRequestAccounts(network, id)
+                handleSwtcRequestAccounts(network, nonce)
             }
 
             DAppMethod.SWTC_SENDTRANSACTION -> {
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() > 0) {
                     val txParams = params.getJSONObject(0)
-                    handleSwtcSendTransaction(network, id, txParams)
+                    handleSwtcSendTransaction(network, nonce, txParams)
                 } else {
-                    sendErrorResponse(network, id, "Missing transaction parameters")
+                    sendErrorResponse(network, nonce, "Missing transaction parameters")
                 }
             }
 
@@ -105,9 +121,9 @@ open class WebAppInterface(
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() > 0) {
                     val msParams = params.getJSONObject(0)
-                    handleSwtcMultiSign(network, id, msParams)
+                    handleSwtcMultiSign(network, nonce, msParams)
                 } else {
-                    sendErrorResponse(network, id, "Missing multi-sign parameters")
+                    sendErrorResponse(network, nonce, "Missing multi-sign parameters")
                 }
             }
 
@@ -116,9 +132,9 @@ open class WebAppInterface(
                 if (params != null && params.length() >= 2) {
                     val from = params.getString(0)
                     val data = params.getString(1)
-                    handleSwtcSignMessage(network, id, from, data)
+                    handleSwtcSignMessage(network, nonce, from, data)
                 } else {
-                    sendErrorResponse(network, id, "Missing sign message parameters")
+                    sendErrorResponse(network, nonce, "Missing sign message parameters")
                 }
             }
 
@@ -126,24 +142,24 @@ open class WebAppInterface(
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() > 0) {
                     val address = params.getString(0)
-                    handleSwtcGetPublicKey(network, id, address)
+                    handleSwtcGetPublicKey(network, nonce, address)
                 } else {
-                    sendErrorResponse(network, id, "Missing address parameter")
+                    sendErrorResponse(network, nonce, "Missing address parameter")
                 }
             }
 
             // ETH RPC Methods
             DAppMethod.ETH_REQUESTACCOUNTS,
             DAppMethod.ETH_ACCOUNTS -> {
-                handleEthRequestAccounts(network, id)
+                handleEthRequestAccounts(network, nonce)
             }
 
             DAppMethod.ETH_CHAINID -> {
-                handleEthChainId(network, id)
+                handleEthChainId(network, nonce)
             }
 
             DAppMethod.ETH_BLOCKNUMBER -> {
-                handleEthBlockNumber(network, id)
+                handleEthBlockNumber(network, nonce)
             }
 
             DAppMethod.ETH_PERSONAL_SIGN -> {
@@ -151,9 +167,9 @@ open class WebAppInterface(
                 if (params != null && params.length() >= 2) {
                     val message = params.getString(0)
                     val address = params.getString(1)
-                    handleEthPersonalSign(network, id, address, message)
+                    handleEthPersonalSign(network, nonce, address, message)
                 } else {
-                    sendErrorResponse(network, id, "Missing personal_sign parameters")
+                    sendErrorResponse(network, nonce, "Missing personal_sign parameters")
                 }
             }
 
@@ -162,31 +178,31 @@ open class WebAppInterface(
                 if (params != null && params.length() >= 2) {
                     val message = params.getString(0)
                     val signature = params.getString(1)
-                    handleEthRecoverPersonalSignature(network, id, message, signature)
+                    handleEthRecoverPersonalSignature(network, nonce, message, signature)
                 } else {
-                    sendErrorResponse(network, id, "Missing personal_ecRecover parameters")
+                    sendErrorResponse(network, nonce, "Missing personal_ecRecover parameters")
                 }
             }
 
             DAppMethod.ETH_SIGNTYPEDDATA -> {
-                handleEthSignTypedData(network, id, obj, "V1")
+                handleEthSignTypedData(network, nonce, obj, "V1")
             }
 
             DAppMethod.ETH_SIGNTYPEDDATA_V3 -> {
-                handleEthSignTypedData(network, id, obj, "V3")
+                handleEthSignTypedData(network, nonce, obj, "V3")
             }
 
             DAppMethod.ETH_SIGNTYPEDDATA_V4 -> {
-                handleEthSignTypedData(network, id, obj, "V4")
+                handleEthSignTypedData(network, nonce, obj, "V4")
             }
 
             DAppMethod.ETH_GET_ENCRYPTION_PUBLICKEY -> {
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() >= 1) {
                     val address = params.getString(0)
-                    handleEthGetEncryptionPublicKey(network, id, address)
+                    handleEthGetEncryptionPublicKey(network, nonce, address)
                 } else {
-                    sendErrorResponse(network, id, "Missing eth_getEncryptionPublicKey parameters")
+                    sendErrorResponse(network, nonce, "Missing eth_getEncryptionPublicKey parameters")
                 }
             }
 
@@ -195,9 +211,9 @@ open class WebAppInterface(
                 if (params != null && params.length() >= 2) {
                     val message = params.getString(0)
                     val address = params.getString(1)
-                    handleEthDecrypt(network, id, address, message)
+                    handleEthDecrypt(network, nonce, address, message)
                 } else {
-                    sendErrorResponse(network, id, "Missing eth_decrypt parameters")
+                    sendErrorResponse(network, nonce, "Missing eth_decrypt parameters")
                 }
             }
 
@@ -205,9 +221,9 @@ open class WebAppInterface(
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() > 0) {
                     val txParams = params.getJSONObject(0)
-                    handleEthSignTransaction(network, id, txParams)
+                    handleEthSignTransaction(network, nonce, txParams)
                 } else {
-                    sendErrorResponse(network, id, "Missing transaction parameters")
+                    sendErrorResponse(network, nonce, "Missing transaction parameters")
                 }
             }
 
@@ -215,9 +231,9 @@ open class WebAppInterface(
                 val params = obj.optJSONArray("params")
                 if (params != null && params.length() > 0) {
                     val txParams = params.getJSONObject(0)
-                    handleEthSendTransaction(network, id, txParams)
+                    handleEthSendTransaction(network, nonce, txParams)
                 } else {
-                    sendErrorResponse(network, id, "Missing transaction parameters")
+                    sendErrorResponse(network, nonce, "Missing transaction parameters")
                 }
             }
 
@@ -228,37 +244,37 @@ open class WebAppInterface(
                     val chainParams = params.getJSONObject(0)
                     val chainId = chainParams.getString("chainId")
                     Log.d(TAG, "Chain switch requested to: $chainId")
-                    handleWalletSwitchEthereumChain(network, id, chainId)
+                    handleWalletSwitchEthereumChain(network, nonce, chainId)
                 } else {
-                    sendErrorResponse(network, id, "Missing chainId parameter")
+                    sendErrorResponse(network, nonce, "Missing chainId parameter")
                 }
             }
 
             DAppMethod.SWTC_REQUESTNFTS -> {
                 val address = obj.optJSONArray("params")?.optString(0) ?: ""
-                handleSwtcRequestNfts(network, id, address)
+                handleSwtcRequestNfts(network, nonce, address)
             }
 
             DAppMethod.ETH_REQUESTNFTS -> {
                 val params = obj.optJSONArray("params")
                 val address = params?.optString(0) ?: ""
                 val whiteList = params?.optJSONArray(1)
-                handleEthRequestNfts(network, id, address, whiteList)
+                handleEthRequestNfts(network, nonce, address, whiteList)
             }
 
             DAppMethod.DID_REQUESTACCOUNTNAME -> {
                 val address = obj.optJSONArray("params")?.optString(0) ?: ""
-                handleDidRequestAccountName(network, id, address)
+                handleDidRequestAccountName(network, nonce, address)
             }
 
             DAppMethod.DID_GETBASE58PUBLICKEY -> {
                 val address = obj.optJSONArray("params")?.optString(0) ?: ""
-                handleDidGetBase58PublicKey(network, id, address)
+                handleDidGetBase58PublicKey(network, nonce, address)
             }
 
             DAppMethod.DID_ISSUECREDENTIAL -> {
                 val vcJson = obj.optJSONArray("params")?.optJSONObject(0)
-                handleDidIssueCredential(network, id, vcJson)
+                handleDidIssueCredential(network, nonce, vcJson)
             }
 
             DAppMethod.IPFS_PERSONALSIGN -> {
@@ -266,147 +282,147 @@ open class WebAppInterface(
                 val dataArr = params?.optJSONArray(0)
                 if (params != null && params.length() >= 2 && dataArr != null) {
                     val address = params.getString(1)
-                    handleIpfsPersonalSign(network, id, address, dataArr)
+                    handleIpfsPersonalSign(network, nonce, address, dataArr)
                 } else {
-                    sendErrorResponse(network, id, "Missing ipfs_personalSign parameters")
+                    sendErrorResponse(network, nonce, "Missing ipfs_personalSign parameters")
                 }
             }
 
             DAppMethod.IPFS_GETPUBLICKEY -> {
                 val address = obj.optJSONArray("params")?.optString(0) ?: ""
-                handleIpfsGetPublicKey(network, id, address)
+                handleIpfsGetPublicKey(network, nonce, address)
             }
 
             DAppMethod.WEB3_CLIENTVERSION -> {
-                sendSuccessResponse(network, id, "CCDAO/v1.0.0")
+                sendSuccessResponse(network, nonce, "CCDAO/v1.0.0")
             }
 
             else -> {
                 Log.w(TAG, "Unhandled method: ${obj.getString("name")}")
-                sendErrorResponse(network, id, "Method not supported")
+                sendErrorResponse(network, nonce, "Method not supported")
             }
         }
     }
 
     // SWTC Handlers
-    private fun handleSwtcRequestAccounts(network: String, id: String) {
+    private fun handleSwtcRequestAccounts(network: String, nonce: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (ethMiddleware.currentChainType.value != com.jccdex.toolkits.core.model.ChainType.SWTC) {
-                    ethMiddleware.setCurrentChainType(com.jccdex.toolkits.core.model.ChainType.SWTC)
+                if (ethMiddleware.currentChainType.value != ChainType.SWTC) {
+                    ethMiddleware.setCurrentChainType(ChainType.SWTC)
                 }
                 val accounts = swtcMiddleware.requestAccounts(getOrigin())
-                sendSuccessResponse(network, id, accounts)
+                sendSuccessResponse(network, nonce, accounts)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_requestAccounts", e)
-                sendErrorResponse(network, id, e.message ?: "Unknown error")
+                sendErrorResponse(network, nonce, e.message ?: "Unknown error")
             }
         }
     }
 
-    private fun handleSwtcSendTransaction(network: String, id: String, txParams: JSONObject) {
+    private fun handleSwtcSendTransaction(network: String, nonce: String, txParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = swtcMiddleware.sendTransaction(txParams, getOrigin())
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_sendTransaction", e)
-                sendErrorResponse(network, id, e.message ?: "Transaction failed")
+                sendErrorResponse(network, nonce, e.message ?: "Transaction failed")
             }
         }
     }
 
-    private fun handleSwtcMultiSign(network: String, id: String, msParams: JSONObject) {
+    private fun handleSwtcMultiSign(network: String, nonce: String, msParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = swtcMiddleware.multiSign(msParams, getOrigin())
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_multiSign", e)
-                sendErrorResponse(network, id, e.message ?: "Multi-sign failed")
+                sendErrorResponse(network, nonce, e.message ?: "Multi-sign failed")
             }
         }
     }
 
-    private fun handleSwtcSignMessage(network: String, id: String, from: String, data: String) {
+    private fun handleSwtcSignMessage(network: String, nonce: String, from: String, data: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = swtcMiddleware.signMessage(from, data, getOrigin())
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_signMessage", e)
-                sendErrorResponse(network, id, e.message ?: "Sign message failed")
+                sendErrorResponse(network, nonce, e.message ?: "Sign message failed")
             }
         }
     }
 
-    private fun handleSwtcGetPublicKey(network: String, id: String, address: String) {
+    private fun handleSwtcGetPublicKey(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = swtcMiddleware.getPublicKey(address, getOrigin())
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_getPublicKey", e)
-                sendErrorResponse(network, id, e.message ?: "Get public key failed")
+                sendErrorResponse(network, nonce, e.message ?: "Get public key failed")
             }
         }
     }
 
     // ETH Handlers
-    private fun handleEthRequestAccounts(network: String, id: String) {
+    private fun handleEthRequestAccounts(network: String, nonce: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val accounts = ethMiddleware.requestAccounts(getOrigin())
-                sendSuccessResponse(network, id, accounts)
+                sendSuccessResponse(network, nonce, accounts)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_requestAccounts", e)
-                sendErrorResponse(network, id, e.message ?: "Unknown error")
+                sendErrorResponse(network, nonce, e.message ?: "Unknown error")
             }
         }
     }
 
-    private fun handleEthChainId(network: String, id: String) {
+    private fun handleEthChainId(network: String, nonce: String) {
         val chainId = ethMiddleware.getChainId()
-        sendSuccessResponse(network, id, chainId)
+        sendSuccessResponse(network, nonce, chainId)
     }
 
-    private fun handleEthBlockNumber(network: String, id: String) {
+    private fun handleEthBlockNumber(network: String, nonce: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val blockNumber = ethMiddleware.getBlockNumber()
-                sendSuccessResponse(network, id, blockNumber)
+                sendSuccessResponse(network, nonce, blockNumber)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_blockNumber", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to get block number")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to get block number")
             }
         }
     }
 
-    private fun handleEthPersonalSign(network: String, id: String, address: String, message: String) {
+    private fun handleEthPersonalSign(network: String, nonce: String, address: String, message: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = ethMiddleware.personalSign(address, message, getOrigin())
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in personal_sign", e)
-                sendErrorResponse(network, id, e.message ?: "Personal sign failed")
+                sendErrorResponse(network, nonce, e.message ?: "Personal sign failed")
             }
         }
     }
 
-    private fun handleEthRecoverPersonalSignature(network: String, id: String, message: String, signature: String) {
+    private fun handleEthRecoverPersonalSignature(network: String, nonce: String, message: String, signature: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = ethMiddleware.recoverPersonalSignature(message, signature)
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in personal_ecRecover", e)
-                sendErrorResponse(network, id, e.message ?: "Recover failed")
+                sendErrorResponse(network, nonce, e.message ?: "Recover failed")
             }
         }
     }
 
-    private fun handleEthSignTypedData(network: String, id: String, obj: JSONObject, version: String) {
+    private fun handleEthSignTypedData(network: String, nonce: String, obj: JSONObject, version: String) {
         val params = obj.optJSONArray("params")
         if (params != null && params.length() >= 2) {
             val address = params.getString(0)
@@ -414,81 +430,81 @@ open class WebAppInterface(
 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    val result = ethMiddleware.signTypedData(address, typedData, version)
-                    sendSuccessResponse(network, id, result)
+                    val result = ethMiddleware.signTypedData(address, typedData, version, getOrigin())
+                    sendSuccessResponse(network, nonce, result)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in eth_signTypedData", e)
-                    sendErrorResponse(network, id, e.message ?: "Sign typed data failed")
+                    sendErrorResponse(network, nonce, e.message ?: "Sign typed data failed")
                 }
             }
         } else {
-            sendErrorResponse(network, id, "Missing signTypedData parameters")
+            sendErrorResponse(network, nonce, "Missing signTypedData parameters")
         }
     }
 
-    private fun handleEthGetEncryptionPublicKey(network: String, id: String, address: String) {
+    private fun handleEthGetEncryptionPublicKey(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.getEncryptionPublicKey(address)
-                sendSuccessResponse(network, id, result)
+                val result = ethMiddleware.getEncryptionPublicKey(address, getOrigin())
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_getEncryptionPublicKey", e)
-                sendErrorResponse(network, id, e.message ?: "Get encryption public key failed")
+                sendErrorResponse(network, nonce, e.message ?: "Get encryption public key failed")
             }
         }
     }
 
-    private fun handleEthDecrypt(network: String, id: String, address: String, message: String) {
+    private fun handleEthDecrypt(network: String, nonce: String, address: String, message: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.decrypt(address, message)
-                sendSuccessResponse(network, id, result)
+                val result = ethMiddleware.decrypt(address, message, getOrigin())
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_decrypt", e)
-                sendErrorResponse(network, id, e.message ?: "Decrypt failed")
+                sendErrorResponse(network, nonce, e.message ?: "Decrypt failed")
             }
         }
     }
 
-    private fun handleEthSignTransaction(network: String, id: String, txParams: JSONObject) {
+    private fun handleEthSignTransaction(network: String, nonce: String, txParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.signTransaction(txParams)
-                val data = (result as? com.jccdex.toolkits.dappconnect.model.SignTransactionResult)?.data ?: result
-                sendSuccessResponse(network, id, data)
+                val result = ethMiddleware.signTransaction(txParams, getOrigin())
+                val data = (result as? SignTransactionResult)?.data ?: result
+                sendSuccessResponse(network, nonce, data)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_signTransaction", e)
-                sendErrorResponse(network, id, e.message ?: "Sign transaction failed")
+                sendErrorResponse(network, nonce, e.message ?: "Sign transaction failed")
             }
         }
     }
 
-    private fun handleEthSendTransaction(network: String, id: String, txParams: JSONObject) {
+    private fun handleEthSendTransaction(network: String, nonce: String, txParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = ethMiddleware.sendTransaction(txParams)
-                sendSuccessResponse(network, id, result)
+                sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_sendTransaction", e)
-                sendErrorResponse(network, id, e.message ?: "Send transaction failed")
+                sendErrorResponse(network, nonce, e.message ?: "Send transaction failed")
             }
         }
     }
 
-    private fun handleWalletSwitchEthereumChain(network: String, id: String, chainId: String) {
+    private fun handleWalletSwitchEthereumChain(network: String, nonce: String, chainId: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 ethMiddleware.switchEthereumChain(chainId, getOrigin())
-                sendSuccessResponse(network, id, null)
-            } catch (e: com.jccdex.toolkits.dappconnect.model.ChainNotSupportedException) {
+                sendSuccessResponse(network, nonce, null)
+            } catch (e: ChainNotSupportedException) {
                 Log.e(TAG, "Chain not supported: $chainId", e)
-                sendErrorResponseWithCode(network, id, e.errorCode, e.message ?: "Chain not supported")
-            } catch (e: com.jccdex.toolkits.dappconnect.model.UserRejectedException) {
+                sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "Chain not supported")
+            } catch (e: UserRejectedException) {
                 Log.e(TAG, "User rejected chain switch", e)
-                sendErrorResponseWithCode(network, id, e.errorCode, e.message ?: "User rejected")
+                sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "User rejected")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in wallet_switchEthereumChain", e)
-                sendErrorResponse(network, id, e.message ?: "Chain switch failed")
+                sendErrorResponse(network, nonce, e.message ?: "Chain switch failed")
             }
         }
     }
@@ -506,19 +522,19 @@ open class WebAppInterface(
 
     // ── DID / IPFS / NFT handlers ──
 
-    private fun handleDidRequestAccountName(network: String, id: String, address: String) {
+    private fun handleDidRequestAccountName(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val name = accountProvider?.getAccountName(address) ?: ""
-                sendSuccessResponse(network, id, name)
+                sendSuccessResponse(network, nonce, name)
             } catch (e: Exception) {
                 Log.e(TAG, "did_requestAccountName failed", e)
-                sendSuccessResponse(network, id, "")
+                sendSuccessResponse(network, nonce, "")
             }
         }
     }
 
-    private fun handleDidGetBase58PublicKey(network: String, id: String, address: String) {
+    private fun handleDidGetBase58PublicKey(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val didSdk = DAppConnectSdk.getDidSdk()
@@ -529,19 +545,19 @@ open class WebAppInterface(
                     put("publicKeyBase58", result.publicKeyBase58)
                     put("type", result.type)
                 }
-                sendSuccessResponse(network, id, json)
+                sendSuccessResponse(network, nonce, json)
             } catch (e: Exception) {
                 Log.e(TAG, "did_getBase58PublicKey failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to get public key")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to get public key")
             }
         }
     }
 
-    private fun handleDidIssueCredential(network: String, id: String, vcJson: JSONObject?) {
+    private fun handleDidIssueCredential(network: String, nonce: String, vcJson: JSONObject?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (vcJson == null) {
-                    sendErrorResponse(network, id, "Missing VC JSON parameter")
+                    sendErrorResponse(network, nonce, "Missing VC JSON parameter")
                     return@launch
                 }
                 val didSdk = DAppConnectSdk.getDidSdk()
@@ -550,15 +566,15 @@ open class WebAppInterface(
                     ?: throw IllegalStateException("Missing keyDoc.address")
                 val privateKey = getPrivateKeyOrFail(address)
                 val signedVc = didSdk.signCredentialForDApp(privateKey, vcJson.toString())
-                sendSuccessResponse(network, id, org.json.JSONObject(signedVc))
+                sendSuccessResponse(network, nonce, JSONObject(signedVc))
             } catch (e: Exception) {
                 Log.e(TAG, "did_issueCredential failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to issue credential")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to issue credential")
             }
         }
     }
 
-    private fun handleIpfsPersonalSign(network: String, id: String, address: String, data: org.json.JSONArray?) {
+    private fun handleIpfsPersonalSign(network: String, nonce: String, address: String, data: JSONArray?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val didSdk = DAppConnectSdk.getDidSdk()
@@ -568,48 +584,48 @@ open class WebAppInterface(
                 } ?: throw IllegalStateException("Missing data parameter")
                 val privateKey = getPrivateKeyOrFail(address)
                 val sig = didSdk.ipfsPersonalSign(privateKey, intArr)
-                sendSuccessResponse(network, id, sig)
+                sendSuccessResponse(network, nonce, sig)
                 didDocumentMutationListener?.onDidDocumentMutated()
             } catch (e: Exception) {
                 Log.e(TAG, "ipfs_personalSign failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to sign")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to sign")
             }
         }
     }
 
-    private fun handleIpfsGetPublicKey(network: String, id: String, address: String) {
+    private fun handleIpfsGetPublicKey(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val didSdk = DAppConnectSdk.getDidSdk()
                     ?: throw IllegalStateException("DidSdk not initialized")
                 val privateKey = getPrivateKeyOrFail(address)
                 val pubKey = didSdk.ipfsGetPublicKey(privateKey)
-                sendSuccessResponse(network, id, pubKey)
+                sendSuccessResponse(network, nonce, pubKey)
             } catch (e: Exception) {
                 Log.e(TAG, "ipfs_getPublicKey failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to get public key")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to get public key")
             }
         }
     }
 
-    private fun handleSwtcRequestNfts(network: String, id: String, address: String) {
+    private fun handleSwtcRequestNfts(network: String, nonce: String, address: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (nftProvider == null) {
-                    sendSuccessResponse(network, id, org.json.JSONObject().apply {
+                    sendSuccessResponse(network, nonce, JSONObject().apply {
                         put("address", address)
                         put("total", 0)
-                        put("nfts", org.json.JSONArray())
+                        put("nfts", JSONArray())
                     })
                     return@launch
                 }
                 val result = nftProvider.getSwtcNfts(address)
-                val json = org.json.JSONObject().apply {
+                val json = JSONObject().apply {
                     put("address", result.address)
                     put("total", result.total)
-                    put("nfts", org.json.JSONArray().apply {
+                    put("nfts", JSONArray().apply {
                         result.nfts.forEach { nft ->
-                            put(org.json.JSONObject().apply {
+                            put(JSONObject().apply {
                                 putOpt("image", nft.image)
                                 putOpt("issuer", nft.issuer)
                                 putOpt("fundCodeName", nft.fundCodeName)
@@ -619,22 +635,22 @@ open class WebAppInterface(
                         }
                     })
                 }
-                sendSuccessResponse(network, id, json)
+                sendSuccessResponse(network, nonce, json)
             } catch (e: Exception) {
                 Log.e(TAG, "swtc_requestNfts failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to get NFTs")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to get NFTs")
             }
         }
     }
 
-    private fun handleEthRequestNfts(network: String, id: String, address: String, whiteList: org.json.JSONArray?) {
+    private fun handleEthRequestNfts(network: String, nonce: String, address: String, whiteList: JSONArray?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (nftProvider == null) {
-                    sendSuccessResponse(network, id, org.json.JSONObject().apply {
+                    sendSuccessResponse(network, nonce, JSONObject().apply {
                         put("address", address)
                         put("total", 0)
-                        put("nfts", org.json.JSONArray())
+                        put("nfts", JSONArray())
                     })
                     return@launch
                 }
@@ -642,27 +658,27 @@ open class WebAppInterface(
                     .replace("0x", "")
                     .toLongOrNull(16)?.toString(16) ?: "1")
                 val result = nftProvider.getEvmNfts(address, chainIdHex, whiteList)
-                val json = org.json.JSONObject().apply {
+                val json = JSONObject().apply {
                     put("address", result.address)
                     put("total", result.total)
-                    put("nfts", org.json.JSONArray().apply {
+                    put("nfts", JSONArray().apply {
                         result.nfts.forEach { group ->
                             val firstToken = group.tokens.firstOrNull()
-                            put(org.json.JSONObject().apply {
+                            put(JSONObject().apply {
                                 put("chainId", firstToken?.chainId ?: chainIdHex)
                                 put("contractAddress", group.contractAddress)
                                 put("name", firstToken?.name ?: "")
-                                put("symbol", org.json.JSONObject.NULL)
+                                put("symbol", JSONObject.NULL)
                                 put("standard", "ERC721")
                                 put("count", group.tokens.size)
-                                put("tokens", org.json.JSONArray().apply {
+                                put("tokens", JSONArray().apply {
                                     group.tokens.forEach { token ->
-                                        put(org.json.JSONObject().apply {
+                                        put(JSONObject().apply {
                                             put("tokenId", token.tokenId)
                                             put("name", token.name ?: "")
                                             put("description", "")
                                             put("image", token.imageUrl ?: "")
-                                            put("tokenURI", org.json.JSONObject.NULL)
+                                            put("tokenURI", JSONObject.NULL)
                                         })
                                     }
                                 })
@@ -670,27 +686,27 @@ open class WebAppInterface(
                         }
                     })
                 }
-                sendSuccessResponse(network, id, json)
+                sendSuccessResponse(network, nonce, json)
             } catch (e: Exception) {
                 Log.e(TAG, "eth_requestNfts failed", e)
-                sendErrorResponse(network, id, e.message ?: "Failed to get NFTs")
+                sendErrorResponse(network, nonce, e.message ?: "Failed to get NFTs")
             }
         }
     }
 
     // Response Helpers
-    protected open fun sendSuccessResponse(network: String, id: String, result: Any?) {
+    protected open fun sendSuccessResponse(network: String, nonce: String, result: Any?) {
         // This should be overridden to send response back to WebView
-        Log.d(TAG, "Success response: network=$network, id=$id, result=$result")
+        Log.d(TAG, "Success response: network=$network, nonce=$nonce, result=$result")
     }
 
-    protected open fun sendErrorResponse(network: String, id: String, error: String) {
+    protected open fun sendErrorResponse(network: String, nonce: String, error: String) {
         // This should be overridden to send response back to WebView
-        Log.e(TAG, "Error response: network=$network, id=$id, error=$error")
+        Log.e(TAG, "Error response: network=$network, nonce=$nonce, error=$error")
     }
 
-    protected open fun sendErrorResponseWithCode(network: String, id: String, code: Int, error: String) {
+    protected open fun sendErrorResponseWithCode(network: String, nonce: String, code: Int, error: String) {
         // This should be overridden to send response back to WebView
-        Log.e(TAG, "Error response with code: network=$network, id=$id, code=$code, error=$error")
+        Log.e(TAG, "Error response with code: network=$network, nonce=$nonce, code=$code, error=$error")
     }
 }

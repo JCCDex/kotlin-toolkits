@@ -265,7 +265,7 @@ class SwtcMiddleware(
 
         Log.d(TAG, "NFT transaction with sequence: $txParams")
 
-        val secret = secretProvider.getSecretForAddress(address, "")
+        val secret = secretProvider.getSecretForAddress(address, "wallet_internal")
             ?: throw IllegalStateException("Failed to get secret for address: $address")
 
         val signedTxBlob = WalletSdk.signSwtcTransaction(txParams, secret)

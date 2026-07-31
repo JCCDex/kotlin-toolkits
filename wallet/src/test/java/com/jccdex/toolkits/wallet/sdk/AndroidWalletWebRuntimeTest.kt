@@ -7,6 +7,7 @@ import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONObject
 import org.junit.Test
@@ -21,7 +22,7 @@ class AndroidWalletWebRuntimeTest {
 
     @Test
     fun realBridgeClientDelegatesToWebviewBridgeClient() =
-        kotlinx.coroutines.test.runTest {
+        runTest {
             val bridgeClient = mockk<WebviewBridgeClient>(relaxed = true)
             coEvery {
                 bridgeClient.callJsMethod(method = "ping", params = any(), timeoutMs = any(), readyWaitMs = any())
@@ -43,7 +44,7 @@ class AndroidWalletWebRuntimeTest {
 
     @Test
     fun delegatesToWebviewBridgeClient() =
-        kotlinx.coroutines.test.runTest {
+        runTest {
             val client = RecordingBridgeClient()
             val runtime = AndroidWalletWebRuntime(context) { client }
 

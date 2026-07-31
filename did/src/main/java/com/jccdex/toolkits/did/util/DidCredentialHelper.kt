@@ -1,6 +1,7 @@
 package com.jccdex.toolkits.did.util
 
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
+import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.NftCredentialRestrictions
 import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
 import com.jccdex.toolkits.did.model.UsageRights
@@ -176,7 +177,7 @@ object DidCredentialHelper {
 
     fun fromAvatarCredential(
         ownerDid: String,
-        selectedAvatar: com.jccdex.toolkits.did.model.DidAvatarCredential
+        selectedAvatar: DidAvatarCredential
     ): UnifiedNftCredentialData =
         if (selectedAvatar.isSwtc) {
             UnifiedNftCredentialData(
