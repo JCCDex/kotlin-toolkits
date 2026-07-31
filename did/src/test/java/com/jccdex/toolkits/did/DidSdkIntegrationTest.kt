@@ -9,7 +9,9 @@ import com.jccdex.toolkits.did.model.WalletAccount
 import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.sdk.DidSdk
 import com.jccdex.toolkits.did.service.DidCoreService
+import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.did.storage.room.DidRoomDatabase
+import com.jccdex.toolkits.did.storage.room.DidRoomEntity
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -63,7 +65,7 @@ class DidSdkIntegrationTest {
                 .getInstance(context)
                 .didDao()
                 .insert(
-                    com.jccdex.toolkits.did.storage.room.DidRoomEntity(
+                    DidRoomEntity(
                         did = did,
                         doc = """{"created":"integration"}"""
                     )
@@ -77,7 +79,7 @@ class DidSdkIntegrationTest {
         runTest {
             val bridge = mockk<IDidBridge>(relaxed = true)
             val resolver =
-                object : com.jccdex.toolkits.did.service.IDidResolver {
+                object : IDidResolver {
                     override suspend fun resolve(did: String): String = ""
                 }
             val testDb = DidTestDatabase.inMemory(ApplicationProvider.getApplicationContext())

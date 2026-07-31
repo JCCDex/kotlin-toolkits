@@ -7,12 +7,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLException
+import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
+import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /**
@@ -95,13 +98,13 @@ class SwtcChainNftClient(
         return connection
     }
 
-    private fun createPinnedSslSocketFactory(): javax.net.ssl.SSLSocketFactory {
+    private fun createPinnedSslSocketFactory(): SSLSocketFactory {
         val defaultTrustManagers =
             run {
                 val tmf =
-                    javax.net.ssl.TrustManagerFactory
-                        .getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
-                tmf.init(null as java.security.KeyStore?)
+                    TrustManagerFactory
+                        .getInstance(TrustManagerFactory.getDefaultAlgorithm())
+                tmf.init(null as KeyStore?)
                 tmf.trustManagers.filterIsInstance<X509TrustManager>()
             }
         val pinnedTm = PinnedTrustManager(defaultTrustManagers.first(), certificatePins.toSet())

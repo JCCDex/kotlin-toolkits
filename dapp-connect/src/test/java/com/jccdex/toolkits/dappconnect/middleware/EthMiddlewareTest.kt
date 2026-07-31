@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -59,7 +60,7 @@ class EthMiddlewareTest {
         override suspend fun getTransactionCount(address: String, chain: ChainType): String = "0x0"
         override suspend fun getGasPrice(chain: ChainType): String = "0x1"
         override suspend fun getMaxPriorityFeePerGas(chain: ChainType): String = "0x1"
-        override suspend fun estimateGas(txParams: org.json.JSONObject, chain: ChainType): String = "0x5208"
+        override suspend fun estimateGas(txParams: JSONObject, chain: ChainType): String = "0x5208"
         override suspend fun broadcastTransaction(signedTx: String, chain: ChainType): String = "0xhash"
         override suspend fun sendRawTransaction(signedBlob: String): String = "0xhash"
         override suspend fun fetchSequence(address: String): Long = 1

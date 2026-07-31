@@ -2,9 +2,13 @@ package com.jccdex.toolkits.dappconnect
 
 import android.util.Log
 import android.webkit.JavascriptInterface
+import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
+import com.jccdex.toolkits.dappconnect.model.ChainNotSupportedException
 import com.jccdex.toolkits.dappconnect.model.DAppMethod
+import com.jccdex.toolkits.dappconnect.model.SignTransactionResult
+import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.ChainProvider
 import com.jccdex.toolkits.dappconnect.provider.NftProvider
@@ -12,6 +16,7 @@ import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -303,8 +308,8 @@ open class WebAppInterface(
     private fun handleSwtcRequestAccounts(network: String, nonce: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                if (ethMiddleware.currentChainType.value != com.jccdex.toolkits.core.model.ChainType.SWTC) {
-                    ethMiddleware.setCurrentChainType(com.jccdex.toolkits.core.model.ChainType.SWTC)
+                if (ethMiddleware.currentChainType.value != ChainType.SWTC) {
+                    ethMiddleware.setCurrentChainType(ChainType.SWTC)
                 }
                 val accounts = swtcMiddleware.requestAccounts(getOrigin())
                 sendSuccessResponse(network, nonce, accounts)
@@ -465,7 +470,7 @@ open class WebAppInterface(
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val result = ethMiddleware.signTransaction(txParams, getOrigin())
-                val data = (result as? com.jccdex.toolkits.dappconnect.model.SignTransactionResult)?.data ?: result
+                val data = (result as? SignTransactionResult)?.data ?: result
                 sendSuccessResponse(network, nonce, data)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_signTransaction", e)
@@ -491,10 +496,10 @@ open class WebAppInterface(
             try {
                 ethMiddleware.switchEthereumChain(chainId, getOrigin())
                 sendSuccessResponse(network, nonce, null)
-            } catch (e: com.jccdex.toolkits.dappconnect.model.ChainNotSupportedException) {
+            } catch (e: ChainNotSupportedException) {
                 Log.e(TAG, "Chain not supported: $chainId", e)
                 sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "Chain not supported")
-            } catch (e: com.jccdex.toolkits.dappconnect.model.UserRejectedException) {
+            } catch (e: UserRejectedException) {
                 Log.e(TAG, "User rejected chain switch", e)
                 sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "User rejected")
             } catch (e: Exception) {
@@ -561,7 +566,7 @@ open class WebAppInterface(
                     ?: throw IllegalStateException("Missing keyDoc.address")
                 val privateKey = getPrivateKeyOrFail(address)
                 val signedVc = didSdk.signCredentialForDApp(privateKey, vcJson.toString())
-                sendSuccessResponse(network, nonce, org.json.JSONObject(signedVc))
+                sendSuccessResponse(network, nonce, JSONObject(signedVc))
             } catch (e: Exception) {
                 Log.e(TAG, "did_issueCredential failed", e)
                 sendErrorResponse(network, nonce, e.message ?: "Failed to issue credential")
@@ -569,7 +574,7 @@ open class WebAppInterface(
         }
     }
 
-    private fun handleIpfsPersonalSign(network: String, nonce: String, address: String, data: org.json.JSONArray?) {
+    private fun handleIpfsPersonalSign(network: String, nonce: String, address: String, data: JSONArray?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val didSdk = DAppConnectSdk.getDidSdk()
@@ -607,20 +612,20 @@ open class WebAppInterface(
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (nftProvider == null) {
-                    sendSuccessResponse(network, nonce, org.json.JSONObject().apply {
+                    sendSuccessResponse(network, nonce, JSONObject().apply {
                         put("address", address)
                         put("total", 0)
-                        put("nfts", org.json.JSONArray())
+                        put("nfts", JSONArray())
                     })
                     return@launch
                 }
                 val result = nftProvider.getSwtcNfts(address)
-                val json = org.json.JSONObject().apply {
+                val json = JSONObject().apply {
                     put("address", result.address)
                     put("total", result.total)
-                    put("nfts", org.json.JSONArray().apply {
+                    put("nfts", JSONArray().apply {
                         result.nfts.forEach { nft ->
-                            put(org.json.JSONObject().apply {
+                            put(JSONObject().apply {
                                 putOpt("image", nft.image)
                                 putOpt("issuer", nft.issuer)
                                 putOpt("fundCodeName", nft.fundCodeName)
@@ -638,14 +643,14 @@ open class WebAppInterface(
         }
     }
 
-    private fun handleEthRequestNfts(network: String, nonce: String, address: String, whiteList: org.json.JSONArray?) {
+    private fun handleEthRequestNfts(network: String, nonce: String, address: String, whiteList: JSONArray?) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 if (nftProvider == null) {
-                    sendSuccessResponse(network, nonce, org.json.JSONObject().apply {
+                    sendSuccessResponse(network, nonce, JSONObject().apply {
                         put("address", address)
                         put("total", 0)
-                        put("nfts", org.json.JSONArray())
+                        put("nfts", JSONArray())
                     })
                     return@launch
                 }
@@ -653,27 +658,27 @@ open class WebAppInterface(
                     .replace("0x", "")
                     .toLongOrNull(16)?.toString(16) ?: "1")
                 val result = nftProvider.getEvmNfts(address, chainIdHex, whiteList)
-                val json = org.json.JSONObject().apply {
+                val json = JSONObject().apply {
                     put("address", result.address)
                     put("total", result.total)
-                    put("nfts", org.json.JSONArray().apply {
+                    put("nfts", JSONArray().apply {
                         result.nfts.forEach { group ->
                             val firstToken = group.tokens.firstOrNull()
-                            put(org.json.JSONObject().apply {
+                            put(JSONObject().apply {
                                 put("chainId", firstToken?.chainId ?: chainIdHex)
                                 put("contractAddress", group.contractAddress)
                                 put("name", firstToken?.name ?: "")
-                                put("symbol", org.json.JSONObject.NULL)
+                                put("symbol", JSONObject.NULL)
                                 put("standard", "ERC721")
                                 put("count", group.tokens.size)
-                                put("tokens", org.json.JSONArray().apply {
+                                put("tokens", JSONArray().apply {
                                     group.tokens.forEach { token ->
-                                        put(org.json.JSONObject().apply {
+                                        put(JSONObject().apply {
                                             put("tokenId", token.tokenId)
                                             put("name", token.name ?: "")
                                             put("description", "")
                                             put("image", token.imageUrl ?: "")
-                                            put("tokenURI", org.json.JSONObject.NULL)
+                                            put("tokenURI", JSONObject.NULL)
                                         })
                                     }
                                 })

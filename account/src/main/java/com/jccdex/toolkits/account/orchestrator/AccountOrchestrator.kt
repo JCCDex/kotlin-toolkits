@@ -7,6 +7,7 @@ import com.jccdex.toolkits.core.model.WalletAccount
 import com.jccdex.toolkits.vault.VaultRepository
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
+import com.jccdex.toolkits.wallet.model.Keypair
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
 import kotlinx.coroutines.sync.Mutex
@@ -140,7 +141,7 @@ class AccountOrchestrator(
                 TraditionalDeriveResult(
                     address = derived.address,
                     keypair =
-                        com.jccdex.toolkits.wallet.model.Keypair(
+                        Keypair(
                             privateKey = "",
                             publicKey = derived.publicKey
                         ),

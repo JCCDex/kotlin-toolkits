@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.dappconnect.middleware
 
+import com.jccdex.toolkits.core.model.ChainType
 import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
@@ -11,9 +12,9 @@ fun interface RequestAccountsCallback {
 
 /** Minimal interface for EVM middleware used by WebAppInterface */
 interface IEthMiddleware {
-    val currentChainType: StateFlow<com.jccdex.toolkits.core.model.ChainType>
+    val currentChainType: StateFlow<ChainType>
     fun setOnAccountSwitched(callback: (String) -> Unit)
-    fun setCurrentChainType(chainType: com.jccdex.toolkits.core.model.ChainType)
+    fun setCurrentChainType(chainType: ChainType)
     suspend fun requestAccounts(origin: String): JSONArray
     fun getChainId(): String
     suspend fun getBlockNumber(): String

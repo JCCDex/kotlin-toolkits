@@ -2,7 +2,11 @@ package com.jccdex.toolkits.did.sdk
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+import io.mockk.coEvery
+import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
@@ -38,11 +42,11 @@ class AndroidDidWebRuntimeTest {
     @Test
     fun realBridgeClientDelegatesToWebviewBridgeClient() =
         runTest {
-            val bridgeClient = io.mockk.mockk<com.jccdex.toolkits.webviewbridge.WebviewBridgeClient>(relaxed = true)
-            io.mockk.coEvery {
+            val bridgeClient = mockk<WebviewBridgeClient>(relaxed = true)
+            coEvery {
                 bridgeClient.callJsMethod(method = "ping", params = any())
             } returns "pong"
-            io.mockk.coEvery {
+            coEvery {
                 bridgeClient.callJsMethodAs(method = "typed", params = any(), clazz = String::class.java)
             } returns "typed-result"
 
@@ -54,9 +58,9 @@ class AndroidDidWebRuntimeTest {
             assertThat(client.callAs("typed", """{"a":1}""", String::class.java)).isEqualTo("typed-result")
 
             client.destroy()
-            io.mockk.verify { bridgeClient.initialize(context.applicationContext, any()) }
-            io.mockk.verify { bridgeClient.start() }
-            io.mockk.verify { bridgeClient.destroy() }
+            verify { bridgeClient.initialize(context.applicationContext, any()) }
+            verify { bridgeClient.start() }
+            verify { bridgeClient.destroy() }
         }
 
     private class RecordingDidWebBridgeClient : IDidWebBridgeClient {

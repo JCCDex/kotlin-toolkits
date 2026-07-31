@@ -1,9 +1,11 @@
 package com.jccdex.toolkits.did.util
 
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
+import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.NftCredentialRestrictions
 import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
 import com.jccdex.toolkits.did.model.UsageRights
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -92,7 +94,7 @@ class DidCredentialHelperTest {
     @Test
     fun `clearPreferredAvatarIfMatches clears profile avatar id`() {
         val services =
-            org.json.JSONArray(
+            JSONArray(
                 """
                 [{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}]
                 """.trimIndent()
@@ -104,7 +106,7 @@ class DidCredentialHelperTest {
     @Test
     fun `clearPreferredAvatarIfMatches does not clear non matching id`() {
         val services =
-            org.json.JSONArray(
+            JSONArray(
                 """
                 [{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"cred-1"}}]
                 """.trimIndent()
@@ -116,7 +118,7 @@ class DidCredentialHelperTest {
     @Test
     fun `clearPreferredAvatarIfMatches skips non Profile services`() {
         val services =
-            org.json.JSONArray(
+            JSONArray(
                 """
                 [{"type":"Other","serviceEndpoint":{"preferredAvatar":"cred-1"}}]
                 """.trimIndent()
@@ -128,7 +130,7 @@ class DidCredentialHelperTest {
     @Test
     fun `clearPreferredAvatarIfMatches matches case insensitive`() {
         val services =
-            org.json.JSONArray(
+            JSONArray(
                 """
                 [{"type":"Profile","serviceEndpoint":{"nickname":"alice","preferredAvatar":"Cred-1"}}]
                 """.trimIndent()
@@ -535,7 +537,7 @@ class DidCredentialHelperTest {
     @Test
     fun `findCredentialIndex returns index when found`() {
         val arr =
-            org.json.JSONArray(
+            JSONArray(
                 """[{"id":"cred-a"},{"id":"cred-b"},{"id":"cred-c"}]"""
             )
         assertEquals(1, DidCredentialHelper.findCredentialIndex(arr, "cred-b"))
@@ -544,7 +546,7 @@ class DidCredentialHelperTest {
     @Test
     fun `findCredentialIndex returns minus one when not found`() {
         val arr =
-            org.json.JSONArray(
+            JSONArray(
                 """[{"id":"cred-a"},{"id":"cred-b"}]"""
             )
         assertEquals(-1, DidCredentialHelper.findCredentialIndex(arr, "cred-x"))
@@ -553,7 +555,7 @@ class DidCredentialHelperTest {
     @Test
     fun `findCredentialIndex matches case insensitive`() {
         val arr =
-            org.json.JSONArray(
+            JSONArray(
                 """[{"id":"Cred-A"},{"id":"cred-b"}]"""
             )
         assertEquals(0, DidCredentialHelper.findCredentialIndex(arr, "CRED-a"))
@@ -561,7 +563,7 @@ class DidCredentialHelperTest {
 
     @Test
     fun `findCredentialIndex returns minus one for empty array`() {
-        assertEquals(-1, DidCredentialHelper.findCredentialIndex(org.json.JSONArray(), "cred-1"))
+        assertEquals(-1, DidCredentialHelper.findCredentialIndex(JSONArray(), "cred-1"))
     }
 
     // ---------- fromAvatarCredential ----------
@@ -569,7 +571,7 @@ class DidCredentialHelperTest {
     @Test
     fun `fromAvatarCredential builds SWTC data`() {
         val avatar =
-            com.jccdex.toolkits.did.model.DidAvatarCredential(
+            DidAvatarCredential(
                 credentialId = "did:swtc:jOwner#nft-MyNFT-jIssuer-1-did:swtc:jOwner",
                 image = "https://example.com/nft.png",
                 name = "MyNFT",
@@ -595,7 +597,7 @@ class DidCredentialHelperTest {
     @Test
     fun `fromAvatarCredential builds ETH data`() {
         val avatar =
-            com.jccdex.toolkits.did.model.DidAvatarCredential(
+            DidAvatarCredential(
                 credentialId = "did:ethr:0x1234#nft-0xAbCd-1-did:ethr:0x1234",
                 image = "https://example.com/nft.png",
                 name = "MyNFT",
@@ -620,7 +622,7 @@ class DidCredentialHelperTest {
     @Test
     fun `fromAvatarCredential ETH data defaults chainId to 1 when null`() {
         val avatar =
-            com.jccdex.toolkits.did.model.DidAvatarCredential(
+            DidAvatarCredential(
                 credentialId = "did:ethr:0x1234#nft-0xAbCd-1-did:ethr:0x1234",
                 image = null,
                 name = "MyNFT",

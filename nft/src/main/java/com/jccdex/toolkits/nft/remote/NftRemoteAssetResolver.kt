@@ -6,6 +6,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -159,7 +160,7 @@ object SsrfGuard {
         if (parsed.protocol !in setOf("http", "https", "ipfs")) return false
         val host = parsed.host ?: return false
         if (host.isBlank()) return false
-        val addr = runCatching { java.net.InetAddress.getByName(host) }.getOrNull() ?: return true
+        val addr = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return true
         return !addr.isLoopbackAddress && !addr.isSiteLocalAddress && !addr.isLinkLocalAddress
     }
 }

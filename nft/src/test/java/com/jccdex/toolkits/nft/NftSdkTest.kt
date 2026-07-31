@@ -132,7 +132,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
-            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
+            SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -184,7 +184,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
-            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
+            SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -242,7 +242,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
-            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
+            SsrfGuard.enabled = false
             server.enqueue(MockResponse().setResponseCode(500))
             server.enqueue(
                 MockResponse()
@@ -284,7 +284,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
-            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
+            SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)
@@ -355,7 +355,7 @@ class NftSdkTest {
                     .build()
             val sdk = NftSdk.create(database.nftDao())
             val server = MockWebServer()
-            com.jccdex.toolkits.nft.remote.SsrfGuard.enabled = false
+            SsrfGuard.enabled = false
             server.enqueue(
                 MockResponse()
                     .setResponseCode(200)

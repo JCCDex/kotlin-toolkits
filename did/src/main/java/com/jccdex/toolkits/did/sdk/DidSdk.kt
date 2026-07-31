@@ -817,7 +817,7 @@ class DidSdk internal constructor(
                 require(credentialId.isNotBlank()) { "credentialId is required" }
                 val doc =
                     resolveBaseDoc(did, currentDoc) ?: return@withContext DidWriteResult(false)
-                val creds = com.jccdex.toolkits.did.util.DidCredentialHelper.readCredentials(doc)
+                val creds = DidCredentialHelper.readCredentials(doc)
                 val found =
                     (0 until creds.length()).any { i ->
                         creds.optJSONObject(i)?.optString("id") == credentialId

@@ -7,7 +7,7 @@ import android.graphics.Canvas
 import android.util.Base64
 import android.webkit.WebView
 import androidx.core.content.ContextCompat
-import java.io.ByteArrayOutputStream
+import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.dappconnect.middleware.EthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
@@ -19,6 +19,7 @@ import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import com.jccdex.toolkits.did.sdk.DidSdk
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
+import java.io.ByteArrayOutputStream
 
 object DAppConnectSdk {
 
@@ -49,7 +50,7 @@ object DAppConnectSdk {
         secretProvider: SecretProvider,
         nodeProvider: NodeProvider,
         chainProvider: ChainProvider? = null,
-        initialChain: com.jccdex.toolkits.core.model.ChainType = com.jccdex.toolkits.core.model.ChainType.BSC
+        initialChain: ChainType = ChainType.BSC
     ): EthMiddleware = EthMiddleware(
         accountProvider = accountProvider,
         secretProvider = secretProvider,

@@ -10,6 +10,7 @@ import com.jccdex.toolkits.apkverify.ApkSigningFingerprint
 import com.jccdex.toolkits.apkverify.JniVerifier
 import com.jccdex.toolkits.apkverify.OfficialReleaseManifestLoader
 import com.jccdex.toolkits.apkverify.ReleaseChecksums
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -103,7 +104,7 @@ object AppUpdateApkInstaller {
             }
 
             AppUpdateDownloadResult.Success(target)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        } catch (cancelled: CancellationException) {
             temp.delete(); target.delete(); throw cancelled
         } catch (e: Exception) {
             temp.delete(); target.delete()
