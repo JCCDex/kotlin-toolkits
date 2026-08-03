@@ -18,23 +18,27 @@ abstract class WebAppInterfaceWithWebView(
     nftProvider: NftProvider? = null,
     didDocumentMutationListener: DidDocumentMutationListener? = null
 ) : WebAppInterface(
-    ethMiddleware,
-    swtcMiddleware,
-    accountProvider,
-    secretProvider,
-    nftProvider,
-    didDocumentMutationListener
-) {
+        ethMiddleware,
+        swtcMiddleware,
+        accountProvider,
+        secretProvider,
+        nftProvider,
+        didDocumentMutationListener
+    ) {
+    private val responseChannel = NativeResponseChannel(webView)
 
     companion object {
         private const val TAG = "WebAppInterfaceWithWebView"
 
         /**
-         * Builds `window.ccdao.<fn>(<quoted-nonce>, <payload>)`.
-         * [nonce] is always [JSONObject.quote]d so page-controlled values cannot break out of the JS string.
+         * Legacy evaluateJavascript callback builder (pre–C-03). Kept for unit tests that
+         * assert [JSONObject.quote] escaping; production delivery uses [NativeResponseChannel].
          */
-        internal fun jsCallback(fn: String, nonce: String, payloadJs: String): String =
-            "window.ccdao.$fn(${JSONObject.quote(nonce)}, $payloadJs)"
+        internal fun jsCallback(
+            fn: String,
+            nonce: String,
+            payloadJs: String
+        ): String = "window.ccdao.$fn(${JSONObject.quote(nonce)}, $payloadJs)"
 
         /**
          * Serializes a bridge result as a JS expression argument.
@@ -51,47 +55,42 @@ abstract class WebAppInterfaceWithWebView(
             }
     }
 
-    override fun sendSuccessResponse(network: String, nonce: String, result: Any?) {
+    /**
+     * Install / refresh the WebMessagePort used for RPC responses (C-03).
+     * Call after `ccdao-eip1193-provider.js` has been evaluated on the page.
+     */
+    override fun installResponseChannel() {
+        responseChannel.install()
+    }
+
+    override fun sendSuccessResponse(
+        network: String,
+        nonce: String,
+        result: Any?
+    ) {
         super.sendSuccessResponse(network, nonce, result)
-
-        val callback = jsCallback("sendResponse", nonce, resultToJs(result))
-        webView.post {
-            webView.evaluateJavascript(callback) { _ ->
-                android.util.Log.d(TAG, "Success response sent")
-            }
-        }
+        responseChannel.sendSuccess(nonce, result)
+        android.util.Log.d(TAG, "Success response queued on port")
     }
 
-    override fun sendErrorResponse(network: String, nonce: String, error: String) {
+    override fun sendErrorResponse(
+        network: String,
+        nonce: String,
+        error: String
+    ) {
         super.sendErrorResponse(network, nonce, error)
-
-        val errorObj = JSONObject().apply {
-            put("code", -1)
-            put("message", error)
-        }
-
-        val callback = jsCallback("sendError", nonce, errorObj.toString())
-        webView.post {
-            webView.evaluateJavascript(callback) { _ ->
-                android.util.Log.d(TAG, "Error response sent")
-            }
-        }
+        responseChannel.sendError(nonce, code = -1, message = error)
+        android.util.Log.d(TAG, "Error response queued on port")
     }
 
-    override fun sendErrorResponseWithCode(network: String, nonce: String, code: Int, error: String) {
+    override fun sendErrorResponseWithCode(
+        network: String,
+        nonce: String,
+        code: Int,
+        error: String
+    ) {
         android.util.Log.e(TAG, "Error response with code: network=$network, code=$code")
-
-        val errorObj = JSONObject().apply {
-            put("code", code)
-            put("message", error)
-        }
-
-        val callback = jsCallback("sendError", nonce, errorObj.toString())
-        webView.post {
-            webView.evaluateJavascript(callback) { _ ->
-                android.util.Log.d(TAG, "Error response with code sent")
-            }
-        }
+        responseChannel.sendError(nonce, code = code, message = error)
     }
 }
 

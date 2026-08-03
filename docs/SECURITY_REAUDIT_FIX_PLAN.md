@@ -2,7 +2,7 @@
 
 **关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) §1.1 / §6.2（复审 2026-07-31）  
 **基线：** `c2f00dc`（复审文档）/ 代码对照 PR `#16`（`69f69c1`）及当前 `sdk20`  
-**状态：** ✅ Phase A–E 已实施；F 待做；实施后残留见 **§13**  
+**状态：** ✅ Phase A–E 已实施；C-03 / M-01 / H-04 已落地；Phase F 残余见 §8 / §13.5  
 **日期：** 2026-08-03  
 
 **本文结构：** §1–2 目标与阶段 → §3–8 Phase A–F → §9–11 跨仓顺序 / 测试 / 矩阵 → §12 审核纪要 → **§13 实施后残留（唯一维护入口）** → §14 修订记录。
@@ -355,7 +355,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 
 | 项 | 方向 | 文档 |
 |----|------|------|
-| C-03 | 隐藏/移除页面可调 `sendResponse`；改 WebMessagePort | [C03_REQUEST_NONCE_FIX.md](./C03_REQUEST_NONCE_FIX.md) |
+| C-03 | 隐藏/移除页面可调 `sendResponse`；改 WebMessagePort | ✅ `NativeResponseChannel` + provider 闭包队列 |
 | M-01 | 失败次数锁定 / 退避 | ✅ SDK `VaultAuthLockout`（5 次 → 1/5/15 min） |
 | H-04 | `*Internal` → `internal` + 编排 API | ✅ 已落地（account friend + App 迁移） |
 | C-01 | 大版本删 proto field 4 | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
@@ -410,7 +410,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | H-07 | 🟨 | ✅ |
 | M-06 | 🟨 | ✅ |
 
-| C-03 | 🟨 | 仍归 Phase F（M-01 ✅） |
+| C-03 | 🟨 | ✅ WebMessagePort；页面不可调 `sendResponse` |
 
 ---
 
@@ -517,7 +517,8 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | **本轮** | M-R5 / L-R1–5 | 无密码 clear；revoke UI；commit；ipfs；文档 | ✅ |
 | **流程** | H-R4 | 先发 toolkits，再关 local | **跳过（发布时再做）** |
 | **文档** | H-R5 | KDoc 禁止同引用 | ✅ |
-| **排期** | — | Phase F（C-03 / C-01 / C-04 等） | 待做 |
+| **排期** | — | Phase F 残余（C-01 / C-04 长期 / M-09 / M-16） | 待做 |
+| **本批** | C-03 | WebMessagePort 回传；移除 window sendResponse/Error | ✅ |
 | **本批** | M-01 | SDK 持久化失败锁定 + 两 App 展示 | ✅ |
 | **本批** | M-05 / H-04 | 拒空白 origin；`*Internal`→`internal` + `get*Unlocked` + App 迁移 | ✅ |
 | **软修** | H-07 残留 / H-04 软 / M-01 软 | 中间件地址脱敏；`*Internal` `@Deprecated`；解锁失败短退避 | ✅ |
@@ -545,3 +546,4 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | 1.12 | 2026-08-03 | 无破坏收口：M-05 warn；M-15/M-18 📌 文档与 `WALLET_INTERNAL` |
 | 1.13 | 2026-08-03 | M-05 拒空白；H-04 `*Internal` internal + App/Orchestrator 迁移 |
 | 1.14 | 2026-08-03 | M-01：VaultAuthLockout 5 次失败阶梯锁定 |
+| 1.15 | 2026-08-03 | C-03：NativeResponseChannel（WebMessagePort）+ 移除 window sendResponse |

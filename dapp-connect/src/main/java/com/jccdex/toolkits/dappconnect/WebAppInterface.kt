@@ -57,6 +57,16 @@ open class WebAppInterface(
     }
 
     /**
+     * Install the native→JS [WebMessagePort] response channel (C-03).
+     *
+     * Hosts using [WebAppInterfaceWithWebView] (or an app subclass with a channel) **must**
+     * call this after evaluating `ccdao-eip1193-provider.js`, typically in the
+     * `evaluateJavascript` completion callback on each page load.
+     * Default no-op for interfaces without a WebView.
+     */
+    open fun installResponseChannel() = Unit
+
+    /**
      * Get the current DApp origin
      */
     protected open fun getOrigin(): String = dappOrigin

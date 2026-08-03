@@ -27,13 +27,13 @@ val initJs = DAppConnectSdk.loadInitJs("0x1", "https://eth-rpc.example.com")
 
 val webView = WebView(context).apply {
     settings.javaScriptEnabled = true
-    addJavascriptInterface(
-        DAppConnectSdk.createWebAppInterface(this, eth, swtc, accounts, secrets, nfts),
-        "_tw_"
-    )
+    val wai = DAppConnectSdk.createWebAppInterface(this, eth, swtc, accounts, secrets, nfts)
+    addJavascriptInterface(wai, "_tw_")
     webViewClient = object : WebViewClient() {
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-            view?.evaluateJavascript(providerJs, null)
+            // C-03: inject provider, then install WebMessagePort for responses
+            // (do not rely on window.ccdao.sendResponse — it is no longer exposed).
+            view?.evaluateJavascript(providerJs) { wai.installResponseChannel() }
             view?.evaluateJavascript(initJs, null)
         }
     }

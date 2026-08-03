@@ -38,7 +38,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 |----|----------|------|
 | C-01 | 🟨 | VaultSession + unlock；磁盘 `derivedKey` 仍保留至首次 unlock 迁移 |
 | C-02 | ✅ | HMAC proof；校验路径重跑 Argon2 |
-| C-03 | 🟨 | UUID nonce；`sendResponse`/`sendError` 仍挂在 `window` |
+| C-03 | ✅ | WebMessagePort 回传；不再暴露 `window.ccdao.sendResponse`/`sendError` |
 | C-04 | 🟨 | 导航/文件访问收紧、部分日志关闭；密钥仍进 JS（长期项） |
 | C-05 | ✅ | Orchestrator：`clearExistingPassword` + `clearWalletData(password)`；`PasswordRequiredForClear` |
 | H-01 | ✅ | 缓存键含 `origin\|address` |
@@ -177,6 +177,8 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 **修复方案：** 详见 [`C03_REQUEST_NONCE_FIX.md`](./C03_REQUEST_NONCE_FIX.md)。核心思路：每个请求生成 `crypto.randomUUID()` nonce，回调队列 key 从猜得到的 `id` 改为不可猜的 `nonce`，native 响应时回传 nonce。约 30 行改动，JS + Native 各一处。
 
 **复审（2026-07-31）：** 🟨 部分修复。单调 `id` 猜测已缓解；**`window.ccdao.sendResponse` / `sendError` 仍暴露在页面**。另见 **R-01**（响应侧 `nonce` 未转义）。
+
+**实施更新（2026-08-03）：** ✅ 关闭。请求队列移入 IIFE 闭包；Native 经 `NativeResponseChannel`（`WebMessagePort`）回传 `{nonce, result|error}`；页面不再暴露 `sendResponse`/`sendError`。Host 须在注入 provider 后调用 `installResponseChannel()`。
 
 ---
 
@@ -472,7 +474,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | **P1** | `NftStore` 全 HTTP 套 `SsrfGuard`；DNS 失败拒绝 | H-06 | ✅ Phase D |
 | **P1** | 清干净响应/result 日志与 bridge debug log | H-07, C-04 | ✅ Phase E |
 | **P1** | 强制/文档要求 `setRequestAccountsCallback`；SWTC 对齐 | M-06 | ✅ Phase E |
-| **P2** | 移除/隐藏 `window.ccdao.sendResponse` 或改 WebMessagePort | C-03 | Phase F |
+| **P2** | ~~移除/隐藏 `window.ccdao.sendResponse` 或改 WebMessagePort~~ | C-03 | ✅ WebMessagePort |
 | **P2** | verifyPassword 失败锁定 | M-01 | Phase F |
 | **P3** | 签名迁出 WebView；Room 加密；RPC pinning | C-04, M-09, M-16 | Phase F |
 
@@ -489,7 +491,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 | 序号 | 行动项 | 关联发现 | 复审 |
 |------|--------|----------|------|
-| 5 | 加固 native→JS 响应通道，禁止页面伪造 | C-03 | 🟨（R-01 quote ✅） |
+| 5 | 加固 native→JS 响应通道，禁止页面伪造 | C-03 | ✅ WebMessagePort |
 | 6 | `CachingSecretProvider` 按 origin 隔离缓存 | H-01 | ✅ |
 | 7 | EVM 全路径传递并校验 origin | H-02 | ✅ |
 | 8 | 修复所有 `evaluateJavascript` 注入点 | H-03 | ✅（响应 quote） |

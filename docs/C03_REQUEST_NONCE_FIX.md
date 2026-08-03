@@ -91,17 +91,18 @@ window.ccdao.sendError(2, { code: 4001, message: "User rejected" });
 
 ## 4. 兼容性
 
-- `sendResponse` / `sendError` 仍暴露在 `window.ccdao` 上（现有 native 代码依赖 `evaluateJavascript` 调用），但需知道 nonce 才能匹配回调
-- 请求消息新增 `nonce` 字段，native 侧需同步读取
+- ~~`sendResponse` / `sendError` 仍暴露在 `window.ccdao` 上~~（**已移除，C-03 第二阶段**）
+- 请求消息含 `nonce` 字段；Native 经 `WebMessagePort` 回传 JSON `{nonce, result|error}`
+- Host 必须在注入 `ccdao-eip1193-provider.js` 后调用 `WebAppInterface.installResponseChannel()`
 - `id` 字段保留但不再用于回调匹配，仅用于日志/追踪
 
-## 5. 工作量
+## 5. 工作量（历史 nonce 阶段）
 
 约 30 行改动，涉及 2 个文件：
 - `ccdao-eip1193-provider.js`（~10 行）
 - `WebAppInterfaceWithWebView.kt`（~15 处 `sendResponse`/`sendError` 调用，每处改参数名）
 
-### 兼容性
+### 兼容性（nonce 阶段）
 
 `crypto.randomUUID()` 需要 WebView Chrome 92+（API 30+ 理论支持，但旧 WebView 可能缺失）。建议加一行 polyfill：
 
@@ -115,9 +116,20 @@ function randomUUID() {
 }
 ```
 
-## 6. 修订记录
+## 6. 第二阶段：WebMessagePort（2026-08-03）
+
+| 组件 | 改动 |
+|------|------|
+| `NativeResponseChannel` | `createWebMessageChannel` + `postWebMessage(HANDSHAKE, port)`；`postMessage` JSON 信封 |
+| `ccdao-eip1193-provider.js` | 闭包 `requestQueue`；监听 `__CCDAO_NATIVE_PORT__`；删除 `window.ccdao.sendResponse/Error` |
+| Apps | `evaluateJavascript(provider) { wai.installResponseChannel() }` |
+
+威胁模型：页面无法再调用全局完成回调；也无法从 `window` 读取请求队列。仍须防同源 XSS 对闭包变量的调试器级访问（与一般 Web 威胁一致）。
+
+## 7. 修订记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1 | 2026-07-28 | 初版 |
 | v1.1 | 2026-07-28 | 补充 `crypto.randomUUID()` polyfill 兼容性说明 |
+| v2 | 2026-08-03 | WebMessagePort 回传；移除 window sendResponse/Error |
