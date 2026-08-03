@@ -2,6 +2,7 @@ package com.jccdex.toolkits.dappconnect.middleware
 
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
+import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
@@ -13,6 +14,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 @RunWith(RobolectricTestRunner::class)
 class SwtcMiddlewareTest {
@@ -79,10 +81,25 @@ class SwtcMiddlewareTest {
                 SpySecretProvider(),
                 StubNodeProvider()
             )
+        middleware.setRequestAccountsCallback { true }
 
         val result = middleware.requestAccounts("https://dapp.example.com")
 
         assertEquals(1, result.length())
         assertEquals("jSwtcAddress", result.getString(0))
+    }
+
+    @Test
+    fun `requestAccounts throws when no callback set`() = runTest {
+        val middleware =
+            SwtcMiddleware(
+                StubAccountProvider(),
+                SpySecretProvider(),
+                StubNodeProvider()
+            )
+
+        assertFailsWith<UserRejectedException> {
+            middleware.requestAccounts("https://dapp.example.com")
+        }
     }
 }

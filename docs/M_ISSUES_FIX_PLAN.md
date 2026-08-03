@@ -50,14 +50,11 @@ for (entry in keys) {
 
 **问题：** `CodedInputStream` 无 size limit，恶意超大 vault.pb 可 OOM。
 
-**修复：**
+**修复：** ciphertext / plaintext 均 ≤ 10MB；`CodedInputStream.setSizeLimit`；`keys` / `mnemonics` / `secrets` 条数 ≤ 1024，超限回落空 vault。
 
-```kotlin
-val input = CodedInputStream.newInstance(bytes)
-input.setSizeLimit(MAX_VAULT_SIZE)  // e.g. 10MB
-```
+**文件：** `VaultSerializer.kt`。**对 app 影响：** 已有的超大合法 vault 可能解析失败（几率极低）。**状态：** ✅
 
-**文件：** `VaultSerializer.kt`，~2 行。**对 app 影响：** 已有的超大合法 vault 可能解析失败（几率极低）。
+---
 
 ---
 
@@ -167,9 +164,9 @@ suspend fun deriveSubAccount(...) = mutex.withLock {
 
 **问题：** 账户不存在时直接 `return`，不要求密码。
 
-**修复：** 先 `verifyPassword`，再检查账户存在性。
+**修复：** 先 `verifyPassword`，再检查账户存在性。缺失账户返回 `Success`（幂等删除，刻意不为 `AccountNotFound`，避免破坏调用方）。
 
-**文件：** `AccountOrchestrator.kt`，~3 行。**对 app 影响：** 无。
+**文件：** `AccountOrchestrator.kt`。**对 app 影响：** 无。**状态：** ✅
 
 ---
 

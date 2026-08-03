@@ -29,7 +29,8 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 
 ### 1.1 修复复审结论（2026-07-31）
 
-PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多项修复（VaultSession、HMAC proof、nonce、origin 缓存、VC 验签、编排锁与私钥不出模型等），但 **未完全收口** C-05 / H-02 / H-03 / H-06 / H-07 / M-06；并在 DApp 响应通道引入 **1 个新的 Medium 问题（R-01）**。
+PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多项修复（VaultSession、HMAC proof、nonce、origin 缓存、VC 验签、编排锁与私钥不出模型等），但复审时 **未完全收口**。  
+**实施更新（2026-08-03，`SECURITY_REAUDIT_FIX_PLAN` Phase A–E）：** R-01/H-03、H-02、C-05、H-06、H-07、M-06 已落地。残余见 C-03 / C-04 长期 / Phase F。
 
 **复审状态图例：** ✅ 已关闭 · 🟨 部分修复 · ❌ 未关闭 / 新发现 · 📌 有意兼容残留
 
@@ -39,20 +40,20 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | C-02 | ✅ | HMAC proof；校验路径重跑 Argon2 |
 | C-03 | 🟨 | UUID nonce；`sendResponse`/`sendError` 仍挂在 `window` |
 | C-04 | 🟨 | 导航/文件访问收紧、部分日志关闭；密钥仍进 JS（长期项） |
-| C-05 | 📌/❌ | vault 可选密码擦除；**Orchestrator 仍无密码调用 `clearAllData()`** |
+| C-05 | ✅ | Orchestrator：`clearExistingPassword` + `clearWalletData(password)`；`PasswordRequiredForClear` |
 | H-01 | ✅ | 缓存键含 `origin\|address` |
-| H-02 | 🟨 | 多条路径已传 origin；**`eth_sendTransaction` 仍丢 origin** |
-| H-03 | 🟨 | `load*Js` 已 `jsQuote`；**响应里 `nonce` 未转义（见 R-01）** |
-| H-04 | 🟨 | 需解锁会话；`*Internal` 仍 public |
+| H-02 | ✅ | `IEthMiddleware.sendTransaction(tx, origin)`；空 origin 拒绝 |
+| H-03 | ✅ | `load*Js` 已 `jsQuote`；响应 `nonce`/`result` 已 `JSONObject.quote`（见 R-01） |
+| H-04 | 🟨 | 需解锁会话；`*Internal` 已 `@Deprecated`，仍 public（可见性收窄 → Phase F） |
 | H-05 | ✅ | `bindVcidToDid` 强制 `verifyCredential` |
-| H-06 | 🟨 | `SsrfGuard` 用于 resolver；**`NftStore.fetch*` 未守卫；DNS fail-open** |
-| H-07 | 🟨 | 部分日志关闭；成功响应 / bridge 仍有残留 |
-| M-01 | 🟨 | Argon2 重算有；无速率限制 |
+| H-06 | ✅ | `NftStore.fetch*` 过 `SsrfGuard`；DNS **fail-closed** |
+| H-07 | ✅ | 响应/postMessage/bridge 脱敏；中间件地址/tx 日志已 scrub |
+| M-01 | 🟨 | Argon2 重算有；App 解锁短退避；无账户锁定 |
 | M-02 | ✅ | `importPrivateKeys` 加 mutex |
 | M-03 | ✅ | changePassword 逐条 wipe |
-| M-04 | 🟨 | 有 blob 大小上限；无字段级 limit |
+| M-04 | ✅ | blob + `CodedInputStream` size limit；keys/mnemonics/secrets ≤ 1024 |
 | M-05 | 🟨 | origin 非空才 `isSafeUrl`；空 origin 可跳过 |
-| M-06 | 🟨 | ETH 可选回调；未设置则仍无授权；SWTC 无对等回调 |
+| M-06 | ✅ | 强制 `setRequestAccountsCallback`（ETH+SWTC）；App 授权 UI + origin 持久化 |
 | M-07 | ✅ | bridge 仅允许 asset URL |
 | M-08 | ✅ | `allowFileAccess = false` |
 | M-09 | ❌ | Room 仍明文（未在本轮） |
@@ -60,20 +61,20 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-11 | ✅ | pending 用 ConcurrentHashMap |
 | M-12 | ✅ | `setCurrentAccount` 校验存在 |
 | M-13 | ✅ | preferredAvatar 校验 credential |
-| M-14 | 🟨 | 先验密码；缺失账户仍 Success |
+| M-14 | ✅ | 先验密码；缺失账户 Success（幂等约定，见 KDoc） |
 | M-15 | 🟨 | 结构校验；无库内用户确认 |
 | M-16 | ❌ | 无 pinning（未在本轮） |
 | M-17 | ✅ | 派生不再向外返回私钥 |
 | M-18 | 🟨 | DApp SWTC 传 origin；内部 NFT 路径用 `wallet_internal` |
-| **R-01** | ❌ **新** | `WebAppInterfaceWithWebView` 拼接未转义 `nonce` → JS 注入 |
+| **R-01** | ✅ | `WebAppInterfaceWithWebView`：`JSONObject.quote(nonce)` + 字符串 result 一律 quote |
 
 **复审后建议优先阅读 / 跟进顺序（供逐项了解）：**
 
-1. R-01（新洞，配合 H-03）
-2. H-02（`eth_sendTransaction` origin）
-3. C-05（Orchestrator 擦除）
-4. H-06（NftStore + DNS fail-open）
-5. H-07 / M-06 / C-03 / C-04（残余）
+1. ~~R-01 / H-03~~ ✅ Phase A  
+2. ~~H-02~~ ✅ Phase B  
+3. ~~C-05~~ ✅ Phase C  
+4. ~~H-06~~ ✅ Phase D  
+5. ~~H-07 / M-06~~ ✅ Phase E；残余 C-03 / C-04 长期 → Phase F
 
 相关修复方案文档见 [docs/README.md](./README.md)。
 
@@ -364,10 +365,10 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 | ID | 问题 | 位置 | 修复要点 | 复审 |
 |----|------|------|----------|------|
-| M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt` | 验证时重跑 Argon2；失败计数与退避 | 🟨 有 Argon2；无锁定 |
+| M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt` | 验证时重跑 Argon2；失败计数与退避 | 🟨 有 Argon2；App 解锁短退避 |
 | M-02 | `importPrivateKeys` 缺少 `mutex` | `VaultRepository.kt` | 与其他写操作一致加锁 | ✅ |
 | M-03 | `changePassword` 批量解密时明文未及时 wipe | `VaultRepository.kt` | 逐条处理并在 `finally` 中 wipe | ✅ |
-| M-04 | protobuf 解析无大小限制 | `VaultSerializer.kt` | `CodedInputStream.setSizeLimit()`；限制 repeated 字段 | 🟨 有 blob 上限 |
+| M-04 | protobuf 解析无大小限制 | `VaultSerializer.kt` | `CodedInputStream.setSizeLimit()`；限制 repeated 字段 | ✅ |
 | M-05 | `postMessage` 无 origin 强制校验、无 per-method 用户确认 | `WebAppInterface.kt` | 库内校验 URL origin；敏感方法需宿主确认 | 🟨 非空才校验 |
 | M-06 | `eth_requestAccounts` 直接返回全部账户 | `EthMiddleware.kt` | EIP-1193 connect 授权；按 origin 持久化授权 | 🟨 可选回调 |
 | M-07 | 桥接 WebView 无导航白名单 | `WebviewBridgeClient.kt` | 仅允许 asset URL | ✅ |
@@ -377,7 +378,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-11 | `DidCoreService` pending 状态非线程安全 | `DidCoreService.kt` | `ConcurrentHashMap` 或 `Mutex` | ✅ |
 | M-12 | `setCurrentAccount` 不校验 accountId 存在 | `RoomAccountStore.kt` | 写入前 `findById` 校验 | ✅ |
 | M-13 | `updatePreferredAvatar` 不校验 credential 存在 | `DidSdk.kt` | 发布前校验 credentials 列表 | ✅ |
-| M-14 | `removeAccount` 账户不存在时跳过密码校验 | `AccountOrchestrator.kt` | 统一先验证或返回 `AccountNotFound` | 🟨 先验密码 |
+| M-14 | `removeAccount` 账户不存在时跳过密码校验 | `AccountOrchestrator.kt` | 统一先验证或返回 `AccountNotFound` | ✅ 先验密码；缺失 Success 幂等 |
 | M-15 | `signCredentialForDApp` 签名 DApp 可控 payload | `DidSdk.kt` | Schema 校验 + 用户确认 UI | 🟨 结构校验 |
 | M-16 | NFT/RPC HTTP 无证书固定 | 各 remote client | 已知 RPC 节点 pinning | ❌ |
 | M-17 | `DerivedSubAccount` 向调用方返回明文私钥 | `AccountOrchestratorModels.kt` | 编排器内原子导入 vault | ✅ |
@@ -445,10 +446,10 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 |------------|----------|----------|
 | 离线窃取 `vault.pb`（无 Keystore） | Tink AEAD | 较强；旧 vault 首次 unlock 前可能仍含 derivedKey |
 | Root / 已 unlock 进程 | 会话密钥 + HMAC proof | 解锁后 `*Internal` 仍可读；编排层无密码擦除 |
-| 恶意 DApp | origin 缓存隔离、部分签名传 origin、nonce | **sendTransaction 丢 origin**；**nonce 注入 (R-01)**；connect 可选 |
+| 恶意 DApp | origin 缓存隔离、签名/sendTx 传 origin、nonce quote | connect 可选（M-06）；`sendResponse` 仍挂 window（C-03） |
 | 弱密码在线猜解 | Argon2 校验成本 | 仍无失败锁定 |
 | 内存 / logcat | 部分日志关闭 | 密钥仍在 JS；响应日志残余 |
-| 内网 SSRF | `SsrfGuard`（部分路径） | `NftStore` 未守卫；DNS fail-open |
+| 内网 SSRF | `SsrfGuard`（NftStore + resolver）；DNS fail-closed | 调试可关 `SsrfGuard.enabled` |
 | 恶意 VC 上链 | `bindVcidToDid` 验签 | ✅ 已缓解 |
 
 ---
@@ -459,19 +460,21 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 见下文历史 P0–P3；其中多项已在 PR `#16` 落地。
 
-### 6.2 复审后剩余优先项（2026-07-31）
+### 6.2 复审后剩余优先项（2026-07-31；A–D 已实施 2026-08-03）
 
-| 优先级 | 行动项 | 关联 |
-|--------|--------|------|
-| **P0** | `WebAppInterfaceWithWebView`：`JSONObject.quote(nonce)` / 校验 UUID | R-01, H-03 |
-| **P0** | `eth_sendTransaction` 全链路传 `getOrigin()` | H-02 |
-| **P0** | Orchestrator `clearExisting` / `clearWalletData` 强制密码 | C-05 |
-| **P1** | `NftStore` 全 HTTP 套 `SsrfGuard`；DNS 失败拒绝 | H-06 |
-| **P1** | 清干净响应/result 日志与 bridge debug log | H-07, C-04 |
-| **P1** | 强制/文档要求 `setRequestAccountsCallback`；SWTC 对齐 | M-06 |
-| **P2** | 移除/隐藏 `window.ccdao.sendResponse` 或改 WebMessagePort | C-03 |
-| **P2** | verifyPassword 失败锁定 | M-01 |
-| **P3** | 签名迁出 WebView；Room 加密；RPC pinning | C-04, M-09, M-16 |
+> **实施细则：** [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)（Phase A–F，含两 App 影响）。
+
+| 优先级 | 行动项 | 关联 | 状态 |
+|--------|--------|------|------|
+| **P0** | `WebAppInterfaceWithWebView`：`JSONObject.quote(nonce)` + quote 字符串 result | R-01, H-03 | ✅ Phase A |
+| **P0** | `eth_sendTransaction` 全链路传 `getOrigin()` | H-02 | ✅ Phase B |
+| **P0** | Orchestrator `clearExisting` / `clearWalletData` 强制**当前**密码 | C-05 | ✅ Phase C |
+| **P1** | `NftStore` 全 HTTP 套 `SsrfGuard`；DNS 失败拒绝 | H-06 | ✅ Phase D |
+| **P1** | 清干净响应/result 日志与 bridge debug log | H-07, C-04 | ✅ Phase E |
+| **P1** | 强制/文档要求 `setRequestAccountsCallback`；SWTC 对齐 | M-06 | ✅ Phase E |
+| **P2** | 移除/隐藏 `window.ccdao.sendResponse` 或改 WebMessagePort | C-03 | Phase F |
+| **P2** | verifyPassword 失败锁定 | M-01 | Phase F |
+| **P3** | 签名迁出 WebView；Room 加密；RPC pinning | C-04, M-09, M-16 | Phase F |
 
 ### P0 — 立即（核心安全模型）〔初审原文〕
 
@@ -479,17 +482,17 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 |------|--------|----------|------|
 | 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 | 🟨 Session |
 | 2 | 密码 proof 改为不可逆验证；迁移现有 vault | C-02 | ✅ |
-| 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 | 📌/❌ |
+| 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 | ✅ Orchestrator |
 | 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 | 🟨 |
 
 ### P1 — 短期（DApp 与桥接）〔初审原文〕
 
 | 序号 | 行动项 | 关联发现 | 复审 |
 |------|--------|----------|------|
-| 5 | 加固 native→JS 响应通道，禁止页面伪造 | C-03 | 🟨 + R-01 |
+| 5 | 加固 native→JS 响应通道，禁止页面伪造 | C-03 | 🟨（R-01 quote ✅） |
 | 6 | `CachingSecretProvider` 按 origin 隔离缓存 | H-01 | ✅ |
-| 7 | EVM 全路径传递并校验 origin | H-02 | 🟨 sendTx |
-| 8 | 修复所有 `evaluateJavascript` 注入点 | H-03 | 🟨 + R-01 |
+| 7 | EVM 全路径传递并校验 origin | H-02 | ✅ |
+| 8 | 修复所有 `evaluateJavascript` 注入点 | H-03 | ✅（响应 quote） |
 | 9 | release 移除敏感日志与 console 转发 | H-07, C-04 | 🟨 |
 
 ### P2 — 中期（业务与基础设施）〔初审原文〕
@@ -497,7 +500,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | 序号 | 行动项 | 关联发现 | 复审 |
 |------|--------|----------|------|
 | 10 | `bindVcidToDid` 增加 `verifyCredential` | H-05 | ✅ |
-| 11 | NFT fetch URL 白名单与 SSRF 防护 | H-06 | 🟨 |
+| 11 | NFT fetch URL 白名单与 SSRF 防护 | H-06 | ✅ |
 | 12 | `verifyPassword` Argon2 + 速率限制 | M-01 | 🟨 |
 | 13 | `importPrivateKeys` 加 mutex | M-02 | ✅ |
 | 14 | 桥接 WebView 导航白名单 | M-07 | ✅ |
@@ -585,6 +588,7 @@ nft/
 | 1.1 | 2026-07-22 | 移至 `docs/` 目录 |
 | 1.2 | 2026-07-28～31 | 各修复方案文档与 SECURITY 状态备注陆续补充 |
 | **1.3** | **2026-07-31** | **PR `#16` 修复复审：闭合矩阵、R-01、剩余路线图** |
+| 1.4 | 2026-08-03 | 增加 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) 残留实施细则链接 |
 
 ---
 

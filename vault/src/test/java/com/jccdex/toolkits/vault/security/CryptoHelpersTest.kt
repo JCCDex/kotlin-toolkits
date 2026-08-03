@@ -63,4 +63,16 @@ class CryptoHelpersTest {
 
             assertThat(restored).isEqualTo(Vault.getDefaultInstance())
         }
+
+    @Test
+    fun `serializer rejects oversized ciphertext blob`() =
+        runTest {
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val serializer = VaultSerializer(context)
+            val oversized = ByteArray(10 * 1024 * 1024 + 1)
+
+            val restored = serializer.readFrom(oversized.inputStream())
+
+            assertThat(restored).isEqualTo(Vault.getDefaultInstance())
+        }
 }

@@ -160,7 +160,8 @@ object SsrfGuard {
         if (parsed.protocol !in setOf("http", "https", "ipfs")) return false
         val host = parsed.host ?: return false
         if (host.isBlank()) return false
-        val addr = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return true
+        // Fail closed: unresolved host must not be treated as safe.
+        val addr = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return false
         return !addr.isLoopbackAddress && !addr.isSiteLocalAddress && !addr.isLinkLocalAddress
     }
 }
@@ -175,7 +176,7 @@ suspend fun fetchMetadataImage(metadataUrl: String): String? =
             connection.requestMethod = "GET"
             connection.connectTimeout = 10_000
             connection.readTimeout = 10_000
-            connection.instanceFollowRedirects = true
+            connection.instanceFollowRedirects = false
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

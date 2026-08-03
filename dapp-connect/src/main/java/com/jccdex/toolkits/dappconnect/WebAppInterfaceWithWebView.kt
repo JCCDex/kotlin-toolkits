@@ -28,27 +28,36 @@ abstract class WebAppInterfaceWithWebView(
 
     companion object {
         private const val TAG = "WebAppInterfaceWithWebView"
+
+        /**
+         * Builds `window.ccdao.<fn>(<quoted-nonce>, <payload>)`.
+         * [nonce] is always [JSONObject.quote]d so page-controlled values cannot break out of the JS string.
+         */
+        internal fun jsCallback(fn: String, nonce: String, payloadJs: String): String =
+            "window.ccdao.$fn(${JSONObject.quote(nonce)}, $payloadJs)"
+
+        /**
+         * Serializes a bridge result as a JS expression argument.
+         * Strings are always [JSONObject.quote]d so values like `0x123` stay string literals
+         * (unquoted hex is parsed as a number by JS).
+         */
+        internal fun resultToJs(result: Any?): String =
+            when (result) {
+                is JSONArray -> result.toString()
+                is JSONObject -> result.toString()
+                is String -> JSONObject.quote(result)
+                null -> "null"
+                else -> result.toString()
+            }
     }
 
     override fun sendSuccessResponse(network: String, nonce: String, result: Any?) {
         super.sendSuccessResponse(network, nonce, result)
 
-        val resultStr = when (result) {
-            is JSONArray -> result.toString()
-            is JSONObject -> result.toString()
-            is String -> if (result.startsWith("0x") || result.startsWith("{")) {
-                result
-            } else {
-                "\"$result\""
-            }
-            null -> "null"
-            else -> result.toString()
-        }
-
-        val callback = "window.ccdao.sendResponse(\"$nonce\", $resultStr)"
+        val callback = jsCallback("sendResponse", nonce, resultToJs(result))
         webView.post {
-            webView.evaluateJavascript(callback) { value ->
-                android.util.Log.d(TAG, "Success response sent: $value")
+            webView.evaluateJavascript(callback) { _ ->
+                android.util.Log.d(TAG, "Success response sent")
             }
         }
     }
@@ -61,26 +70,26 @@ abstract class WebAppInterfaceWithWebView(
             put("message", error)
         }
 
-        val callback = "window.ccdao.sendError(\"$nonce\", $errorObj)"
+        val callback = jsCallback("sendError", nonce, errorObj.toString())
         webView.post {
-            webView.evaluateJavascript(callback) { value ->
-                android.util.Log.d(TAG, "Error response sent: $value")
+            webView.evaluateJavascript(callback) { _ ->
+                android.util.Log.d(TAG, "Error response sent")
             }
         }
     }
 
     override fun sendErrorResponseWithCode(network: String, nonce: String, code: Int, error: String) {
-        android.util.Log.e(TAG, "Error response with code: network=$network, nonce=$nonce, code=$code, error=$error")
+        android.util.Log.e(TAG, "Error response with code: network=$network, code=$code")
 
         val errorObj = JSONObject().apply {
             put("code", code)
             put("message", error)
         }
 
-        val callback = "window.ccdao.sendError(\"$nonce\", $errorObj)"
+        val callback = jsCallback("sendError", nonce, errorObj.toString())
         webView.post {
-            webView.evaluateJavascript(callback) { value ->
-                android.util.Log.d(TAG, "Error response with code sent: $value")
+            webView.evaluateJavascript(callback) { _ ->
+                android.util.Log.d(TAG, "Error response with code sent")
             }
         }
     }

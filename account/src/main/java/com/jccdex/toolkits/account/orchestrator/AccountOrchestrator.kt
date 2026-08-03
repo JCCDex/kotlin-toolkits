@@ -49,16 +49,39 @@ class AccountOrchestrator(
             AccountOperationResult.Success(walletAccount.id)
         }
 
+    /**
+     * @param password Business / new password used to initialize vault when empty.
+     *   Must be a **distinct** [ByteArray] from [clearExistingPassword]: vault verify/clear
+     *   wipes the clear-password array in place (H-R5). Passing the same reference for both
+     *   will leave [password] zeroed before [initializePassword].
+     * @param clearExistingPassword **Current** vault password required when [clearExisting] and
+     *   vault already has a password. Must not be confused with [password] (e.g. reset UI new password).
+     *   Do not reuse the same [ByteArray] instance as [password].
+     */
     suspend fun importHdWallet(
         hdResult: GenerateHDWalletResult,
         name: String,
         password: ByteArray?,
-        clearExisting: Boolean = false
+        clearExisting: Boolean = false,
+        clearExistingPassword: ByteArray? = null
     ): AccountOperationResult<ImportHdWalletResult> =
         runOperation {
             if (clearExisting) {
+                if (vault.hasPassword()) {
+                    val pwd =
+                        clearExistingPassword
+                            ?: return@runOperation AccountOperationResult.Error(
+                                AccountOperationError.PasswordRequiredForClear
+                            )
+                    try {
+                        vault.clearAllData(pwd)
+                    } catch (_: IllegalArgumentException) {
+                        return@runOperation AccountOperationResult.Error(AccountOperationError.WrongPassword())
+                    }
+                } else {
+                    vault.clearAllData()
+                }
                 store.clearAllAccounts()
-                vault.clearAllData()
             }
 
             if (store.findRootAccountByAddress(hdResult.address) != null) {
@@ -154,6 +177,12 @@ class AccountOrchestrator(
         )
     }
 
+    /**
+     * Removes [accountId] after verifying [password].
+     *
+     * Password is always checked first (M-14). If the account is already gone, returns
+     * [AccountOperationResult.Success] (idempotent delete) rather than a not-found error.
+     */
     suspend fun removeAccount(
         accountId: String,
         password: ByteArray
@@ -226,10 +255,25 @@ class AccountOrchestrator(
             }
         }
 
-    suspend fun clearWalletData() {
-        store.clearAllAccounts()
-        vault.clearAllData()
-    }
+    /**
+     * Clears vault and accounts.
+     * When the vault already has a password, [password] must be the **current** vault password.
+     * When the vault has **no** password yet, [password] is ignored and data is cleared directly (M-R5).
+     */
+    suspend fun clearWalletData(password: ByteArray): AccountOperationResult<Unit> =
+        runOperation {
+            try {
+                if (vault.hasPassword()) {
+                    vault.clearAllData(password)
+                } else {
+                    vault.clearAllData()
+                }
+            } catch (_: IllegalArgumentException) {
+                return@runOperation AccountOperationResult.Error(AccountOperationError.WrongPassword())
+            }
+            store.clearAllAccounts()
+            AccountOperationResult.Success(Unit)
+        }
 
     private suspend fun persistVaultMaterial(derived: TraditionalDeriveResult) {
         val keypair = derived.keypair

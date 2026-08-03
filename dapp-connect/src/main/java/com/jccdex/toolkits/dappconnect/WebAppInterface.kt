@@ -48,10 +48,11 @@ open class WebAppInterface(
     private var chainProvider: ChainProvider? = null
 
     /**
-     * Set the DApp origin for security checks
+     * Set the DApp origin for security checks.
+     * Stores a normalized web origin (`scheme://host[:port]`) when possible (H-R2 / M-R4).
      */
     fun setOrigin(origin: String) {
-        this.dappOrigin = origin
+        this.dappOrigin = WebOrigin.normalize(origin) ?: origin.trim()
     }
 
     /**
@@ -91,15 +92,12 @@ open class WebAppInterface(
         }
 
         val obj = JSONObject(json)
-        // Only log full JSON in debug builds; re-enable for local development.
-        if (false) {
-            Log.d(TAG, "postMessage: $json")
-        }
-
         val method = DAppMethod.fromValue(obj.getString("name"))
         val network = obj.getString("network")
         val id = obj.getString("id")
         val nonce = obj.optString("nonce", id)
+        // Never log full postMessage payload (may contain tx / message / ciphertext).
+        Log.d(TAG, "postMessage method=${method.name} network=$network")
 
         when (method) {
             // SWTC RPC Methods
@@ -313,6 +311,8 @@ open class WebAppInterface(
                 }
                 val accounts = swtcMiddleware.requestAccounts(getOrigin())
                 sendSuccessResponse(network, nonce, accounts)
+            } catch (e: UserRejectedException) {
+                sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "User rejected")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_requestAccounts", e)
                 sendErrorResponse(network, nonce, e.message ?: "Unknown error")
@@ -374,6 +374,8 @@ open class WebAppInterface(
             try {
                 val accounts = ethMiddleware.requestAccounts(getOrigin())
                 sendSuccessResponse(network, nonce, accounts)
+            } catch (e: UserRejectedException) {
+                sendErrorResponseWithCode(network, nonce, e.errorCode, e.message ?: "User rejected")
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_requestAccounts", e)
                 sendErrorResponse(network, nonce, e.message ?: "Unknown error")
@@ -482,7 +484,7 @@ open class WebAppInterface(
     private fun handleEthSendTransaction(network: String, nonce: String, txParams: JSONObject) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val result = ethMiddleware.sendTransaction(txParams)
+                val result = ethMiddleware.sendTransaction(txParams, getOrigin())
                 sendSuccessResponse(network, nonce, result)
             } catch (e: Exception) {
                 Log.e(TAG, "Error in eth_sendTransaction", e)
@@ -694,19 +696,16 @@ open class WebAppInterface(
         }
     }
 
-    // Response Helpers
+    // Response Helpers — never log result/error bodies (may contain signatures, ciphertext, addresses lists).
     protected open fun sendSuccessResponse(network: String, nonce: String, result: Any?) {
-        // This should be overridden to send response back to WebView
-        Log.d(TAG, "Success response: network=$network, nonce=$nonce, result=$result")
+        Log.d(TAG, "Success response: network=$network")
     }
 
     protected open fun sendErrorResponse(network: String, nonce: String, error: String) {
-        // This should be overridden to send response back to WebView
-        Log.e(TAG, "Error response: network=$network, nonce=$nonce, error=$error")
+        Log.e(TAG, "Error response: network=$network")
     }
 
     protected open fun sendErrorResponseWithCode(network: String, nonce: String, code: Int, error: String) {
-        // This should be overridden to send response back to WebView
-        Log.e(TAG, "Error response with code: network=$network, nonce=$nonce, code=$code, error=$error")
+        Log.e(TAG, "Error response with code: network=$network, code=$code")
     }
 }

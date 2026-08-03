@@ -283,7 +283,8 @@ class AccountOrchestratorTest {
     @Test
     fun importHdWallet_clearExisting_wipesStoreAndVault() =
         runTest {
-            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.hasPassword() } returns true andThen false andThen false
+            coEvery { vault.clearAllData(any()) } returns mockk(relaxed = true)
             coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
             coEvery { vault.importPrivateKeys(any()) } returns Unit
 
@@ -297,11 +298,77 @@ class AccountOrchestratorTest {
                     keypair = Keypair("priv", "pub")
                 )
 
-            orchestrator.importHdWallet(hd, "fresh", "pass".toByteArray(), clearExisting = true)
+            orchestrator.importHdWallet(
+                hd,
+                "fresh",
+                "new-pass".toByteArray(),
+                clearExisting = true,
+                clearExistingPassword = "old-pass".toByteArray()
+            )
 
-            coVerify { vault.clearAllData() }
+            coVerify { vault.clearAllData(match { it.contentEquals("old-pass".toByteArray()) }) }
             assertThat(testDb.store.accounts.first()).hasSize(1)
             assertThat(testDb.store.findRootAccountByAddress("jFresh")).isNotNull
+        }
+
+    @Test
+    fun importHdWallet_clearExisting_requiresCurrentPasswordWhenVaultHasPassword() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            testDb.store.addAccount(AccountTestFixtures.traditional(id = "old"))
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jFresh",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+
+            val result =
+                orchestrator.importHdWallet(
+                    hd,
+                    "fresh",
+                    "new-pass".toByteArray(),
+                    clearExisting = true
+                )
+
+            assertThat(result).isEqualTo(
+                AccountOperationResult.Error(AccountOperationError.PasswordRequiredForClear)
+            )
+            coVerify(exactly = 0) { vault.clearAllData(any()) }
+            assertThat(testDb.store.findById("old")).isNotNull
+        }
+
+    @Test
+    fun importHdWallet_clearExisting_rejectsWrongCurrentPassword() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.clearAllData(any()) } throws IllegalArgumentException("Password is wrong")
+
+            testDb.store.addAccount(AccountTestFixtures.traditional(id = "old"))
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jFresh",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+
+            val result =
+                orchestrator.importHdWallet(
+                    hd,
+                    "fresh",
+                    "new-pass".toByteArray(),
+                    clearExisting = true,
+                    clearExistingPassword = "wrong".toByteArray()
+                )
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            assertThat((result as AccountOperationResult.Error).error)
+                .isInstanceOf(AccountOperationError.WrongPassword::class.java)
+            assertThat(testDb.store.findById("old")).isNotNull
         }
 
     @Test
@@ -501,11 +568,43 @@ class AccountOrchestratorTest {
     @Test
     fun clearWalletData_clearsStoreAndVault() =
         runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.clearAllData(any()) } returns mockk(relaxed = true)
             testDb.store.addAccount(AccountTestFixtures.traditional())
 
-            orchestrator.clearWalletData()
+            val result = orchestrator.clearWalletData("pass".toByteArray())
 
-            coVerify { vault.clearAllData() }
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify { vault.clearAllData(match { it.contentEquals("pass".toByteArray()) }) }
             assertThat(testDb.store.accounts.first()).isEmpty()
+        }
+
+    @Test
+    fun clearWalletData_clearsWhenVaultHasNoPassword() =
+        runTest {
+            coEvery { vault.hasPassword() } returns false
+            coEvery { vault.clearAllData(null) } returns mockk(relaxed = true)
+            testDb.store.addAccount(AccountTestFixtures.traditional())
+
+            val result = orchestrator.clearWalletData("ignored".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify { vault.clearAllData(null) }
+            assertThat(testDb.store.accounts.first()).isEmpty()
+        }
+
+    @Test
+    fun clearWalletData_rejectsWrongPassword() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.clearAllData(any()) } throws IllegalArgumentException("Password is wrong")
+            testDb.store.addAccount(AccountTestFixtures.traditional(id = "keep"))
+
+            val result = orchestrator.clearWalletData("wrong".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            assertThat((result as AccountOperationResult.Error).error)
+                .isInstanceOf(AccountOperationError.WrongPassword::class.java)
+            assertThat(testDb.store.findById("keep")).isNotNull
         }
 }

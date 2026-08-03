@@ -24,7 +24,7 @@ interface IEthMiddleware {
     suspend fun getEncryptionPublicKey(address: String, origin: String = ""): String
     suspend fun decrypt(address: String, encryptedData: String, origin: String = ""): String
     suspend fun signTransaction(txParams: JSONObject, origin: String = ""): Any // SignTransactionResult
-    suspend fun sendTransaction(txParams: JSONObject): String
+    suspend fun sendTransaction(txParams: JSONObject, origin: String): String
     suspend fun switchEthereumChain(chainIdHex: String, origin: String)
     fun setRequestAccountsCallback(callback: RequestAccountsCallback?)
 }
@@ -36,4 +36,5 @@ interface ISwtcMiddleware {
     suspend fun multiSign(msParams: JSONObject, origin: String): Any
     suspend fun signMessage(from: String, data: String, origin: String): String
     suspend fun getPublicKey(address: String, origin: String): String
+    fun setRequestAccountsCallback(callback: RequestAccountsCallback?)
 }

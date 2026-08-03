@@ -453,6 +453,11 @@ class VaultRepository private constructor(
         return entry.lang
     }
 
+    /**
+     * Session-gated mnemonic export. Prefer [getMnemonic] with an explicit password when possible.
+     * Visibility will narrow to `internal` in a later release (H-04).
+     */
+    @Deprecated("Prefer getMnemonic(address, password); Internal stays public until H-04.")
     suspend fun getMnemonicInternal(address: String): ByteArray {
         if (!addressInMnemonics(address)) {
             throw IllegalArgumentException("Mnemonic is not exist")
@@ -476,6 +481,11 @@ class VaultRepository private constructor(
             .keysList
             .any { it.address.equals(address, true) }
 
+    /**
+     * Session-gated private-key export. Prefer [getPrivateKey] with an explicit password when possible.
+     * Visibility will narrow to `internal` in a later release (H-04).
+     */
+    @Deprecated("Prefer getPrivateKey(address, password); Internal stays public until H-04.")
     suspend fun getPrivateKeyInternal(address: String): ByteArray {
         if (!addressInKeys(address)) {
             throw IllegalArgumentException("Private key is not exist")
@@ -674,6 +684,11 @@ class VaultRepository private constructor(
 
     private fun getSecretAAD(address: String): ByteArray = "secret:${address.lowercase()}".toByteArray()
 
+    /**
+     * Clears all vault data. When [password] is non-null it is verified first; on success or when
+     * null, data is wiped. **Note (H-R5):** [verifyPassword] zeroes the [password] array in place —
+     * do not reuse the same [ByteArray] afterwards (e.g. as a new vault password).
+     */
     suspend fun clearAllData(password: ByteArray? = null) =
         mutex.withLock {
             if (password != null && !verifyPassword(password)) {

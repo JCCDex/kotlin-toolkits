@@ -81,7 +81,7 @@ class EthMiddlewareTest {
     // ── M-06: requestAccounts callback ──
 
     @Test
-    fun `requestAccounts succeeds when no callback set`() = runTest {
+    fun `requestAccounts throws when no callback set`() = runTest {
         val middleware =
             EthMiddleware(
                 StubAccountProvider(listOf(testAccount)),
@@ -89,10 +89,9 @@ class EthMiddlewareTest {
                 StubNodeProvider()
             )
 
-        val result = middleware.requestAccounts("https://dapp.example.com")
-
-        assertEquals(1, result.length())
-        assertEquals("0xabc", result.getString(0))
+        assertFailsWith<UserRejectedException> {
+            middleware.requestAccounts("https://dapp.example.com")
+        }
     }
 
     @Test
@@ -148,6 +147,54 @@ class EthMiddlewareTest {
     }
 
     @Test
+    fun `sendTransaction passes origin to secret provider`() = runTest {
+        val spy = SpySecretProvider()
+        val middleware =
+            EthMiddleware(
+                StubAccountProvider(listOf(testAccount)),
+                spy,
+                StubNodeProvider(),
+                initialChain = ChainType.BSC
+            )
+        // Avoid WalletSdk JS bridge: force failure after origin is captured via getPrivateKey
+        val tx =
+            JSONObject().apply {
+                put("from", "0xabc")
+                put("to", "0xdef")
+                put("value", "0x0")
+                put("nonce", "0x0")
+                put("gasPrice", "0x1")
+                put("gas", "0x5208")
+                put("chainId", "0x38")
+            }
+
+        runCatching { middleware.sendTransaction(tx, "https://dapp.example.com") }
+
+        assertEquals("https://dapp.example.com", spy.lastOrigin)
+        assertEquals("0xabc", spy.lastAddress)
+    }
+
+    @Test
+    fun `sendTransaction rejects blank origin`() = runTest {
+        val middleware =
+            EthMiddleware(
+                StubAccountProvider(listOf(testAccount)),
+                SpySecretProvider(),
+                StubNodeProvider()
+            )
+        val tx =
+            JSONObject().apply {
+                put("from", "0xabc")
+                put("to", "0xdef")
+                put("value", "0x0")
+            }
+
+        assertFailsWith<IllegalArgumentException> {
+            middleware.sendTransaction(tx, "  ")
+        }
+    }
+
+    @Test
     fun `requestAccounts skips hd root accounts`() = runTest {
         val root =
             testAccount.copy(id = "root", address = "0xroot", isHD = true, parentId = null)
@@ -160,6 +207,7 @@ class EthMiddlewareTest {
                 StubNodeProvider(),
                 initialChain = ChainType.BSC
             )
+        middleware.setRequestAccountsCallback { true }
 
         val result = middleware.requestAccounts("https://dapp.example.com")
 

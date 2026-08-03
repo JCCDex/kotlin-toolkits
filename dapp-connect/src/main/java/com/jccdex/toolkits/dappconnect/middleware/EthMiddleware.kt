@@ -72,9 +72,11 @@ class EthMiddleware(
     override suspend fun requestAccounts(origin: String): JSONArray {
         Log.d(TAG, "requestAccounts called from origin: $origin, currentChain: ${_currentChainType.value.name}")
 
-        // Require user approval before returning accounts (EIP-1193)
-        val cb = requestAccountsCallback
-        if (cb != null && !cb.onRequestAccounts(origin)) {
+        // Require app-layer EIP-1193 connect approval (M-06).
+        val cb =
+            requestAccountsCallback
+                ?: throw UserRejectedException("RequestAccountsCallback is not set")
+        if (!cb.onRequestAccounts(origin)) {
             throw UserRejectedException("User rejected the requestAccounts request")
         }
 
@@ -152,10 +154,10 @@ class EthMiddleware(
         message: String,
         origin: String
     ): String {
-        Log.d(TAG, "personalSign called from origin: $origin, address: $address")
+        Log.d(TAG, "personalSign called from origin: $origin")
         validateEvmAddress(address)
 
-        Log.d(TAG, "Signing message for address: $address")
+        Log.d(TAG, "Signing message")
         val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
             ?: throw IllegalStateException("Failed to get private key")
 
@@ -225,6 +227,7 @@ class EthMiddleware(
      * Sign a transaction without sending it
      */
     override suspend fun signTransaction(txParams: JSONObject, origin: String): SignTransactionResult {
+        require(origin.isNotBlank()) { "origin must not be blank for signTransaction" }
         val from = txParams.getString("from")
 
         // Verify account exists in wallet
@@ -253,7 +256,7 @@ class EthMiddleware(
                 _currentChainType.value
             }
 
-        Log.d(TAG, "Processing transaction for account: $from, chain: ${chainType.name}")
+        Log.d(TAG, "Processing transaction for chain: ${chainType.name}")
 
         // Get nonce if not provided
         if (!txParams.has("nonce")) {
@@ -342,12 +345,13 @@ class EthMiddleware(
 
     /**
      * Handle eth_sendTransaction RPC call
-     * Signs and sends a transaction
+     * Signs and sends a transaction. [origin] must be non-blank (DApp origin).
      */
-    override suspend fun sendTransaction(txParams: JSONObject): String {
-        val result = signTransaction(txParams)
+    override suspend fun sendTransaction(txParams: JSONObject, origin: String): String {
+        require(origin.isNotBlank()) { "origin must not be blank for sendTransaction" }
+        val result = signTransaction(txParams, origin)
         val hash = nodeProvider.broadcastTransaction(result.data, result.chain)
-        Log.d(TAG, "Transaction submitted successfully: $hash")
+        Log.d(TAG, "Transaction submitted successfully")
         return hash
     }
 
@@ -434,7 +438,7 @@ class EthMiddleware(
 
         // Prefer same address account, otherwise first account on target chain
         val targetAccount = sameAddressAccount ?: targetChainAccounts.first()
-        Log.d(TAG, "Switching to account: ${targetAccount.address} on chain ${targetChain.name}")
+        Log.d(TAG, "Switching account on chain ${targetChain.name}")
         accountProvider.setCurrentAccount(targetAccount.id)
 
         // Notify external account switched
