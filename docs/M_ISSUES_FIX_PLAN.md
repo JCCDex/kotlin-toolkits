@@ -62,9 +62,9 @@ for (entry in keys) {
 
 **问题：** 库内不校验 DApp origin，依赖 app 层检查。
 
-**修复：** C-03 已在 `postMessage` 入口加了 `isSafeUrl(getOrigin())` 静默拒绝。
+**修复：** `postMessage` 拒绝空白 origin 与非 `isSafeUrl` origin；宿主必须 `setOrigin`（两 App 已导航同步）。
 
-**状态：** ✅ C-03 已覆盖。
+**状态：** ✅
 
 ---
 
@@ -174,9 +174,9 @@ suspend fun deriveSubAccount(...) = mutex.withLock {
 
 **问题：** DApp 传入的 VC 内容无 schema 校验即签名。
 
-**修复：** 签名前用 JSON Schema 校验 `credential` 结构。
+**修复：** SDK 侧结构校验（`@context`/`type`、`credentialSubject`、issuer）。库内确认回调会破坏 API，改为 **宿主确认后调用**（KDoc + README）。
 
-**文件：** `DidSdk.kt`，~15 行。**对 app 影响：** DApp 未按标准格式的 payload 会签名失败。
+**状态：** 📌
 
 ---
 
@@ -190,23 +190,19 @@ suspend fun deriveSubAccount(...) = mutex.withLock {
 
 ---
 
-## M-17：DerivedSubAccount 返回明文私钥
+## M-17：DerivedSubAccount 携带私钥
 
-**问题：** `deriveSubAccount` 向调用方返回明文私钥。
-
-**修复：** 在 orchestrator 内部原子调用 `vault.importPrivateKey`，返回 `DerivedSubAccount` 时不包含私钥。
-
-**文件：** `AccountOrchestrator.kt` + `AccountOrchestratorModels.kt`，~5 行。**对 app 影响：** **breaking change**——调用方不再能获取明文私钥，需同步修改所有读取 `DerivedSubAccount.privateKey` 的代码。
+（已关闭，见 SECURITY_AUDIT。）
 
 ---
 
 ## M-18：SWTC getSecretForAddress 传空 origin
 
-**问题：** `SwtcMiddleware.getSecretForAddress(address, "")` 硬编码空 origin。
+**问题：** 内部 NFT 路径曾硬编码空 origin。
 
-**修复：** 同 H-02——传 `getOrigin()`。
+**修复：** DApp 路径传真实 origin；原生 NFT 使用哨兵 `WebOrigin.WALLET_INTERNAL`（非可授权 web origin），避免空串与「未设 origin」混淆。
 
-**文件：** SDK 内调用的 ccdao/jdid 层。**对 app 影响：** 无。
+**状态：** 📌
 
 ---
 
@@ -218,7 +214,7 @@ suspend fun deriveSubAccount(...) = mutex.withLock {
 | M-02 | 低 | ~2 | |
 | M-03 | 中 | ~10 | |
 | M-04 | 低 | ~2 | |
-| M-05 | — | 0 | ✅ C-03 |
+| M-05 | — | 0 | 📌 warn + 文档 |
 | M-06 | 中 | ~20 | |
 | M-07 | 低 | ~5 | |
 | M-08 | 低 | ~1 | |

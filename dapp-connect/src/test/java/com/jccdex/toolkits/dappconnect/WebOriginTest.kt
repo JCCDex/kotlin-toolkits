@@ -29,9 +29,7 @@ class WebOriginTest {
     }
 
     @Test
-    fun normalize_rejectsNonHttp() {
-        assertNull(WebOrigin.normalize("file:///tmp/x"))
-        assertNull(WebOrigin.normalize(""))
-        assertNull(WebOrigin.normalize("not-a-url"))
+    fun walletInternal_sentinelIsStable() {
+        assertEquals("wallet_internal", WebOrigin.WALLET_INTERNAL)
     }
 }

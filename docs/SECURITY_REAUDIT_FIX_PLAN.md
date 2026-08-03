@@ -357,7 +357,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 |----|------|------|
 | C-03 | 隐藏/移除页面可调 `sendResponse`；改 WebMessagePort | [C03_REQUEST_NONCE_FIX.md](./C03_REQUEST_NONCE_FIX.md) |
 | M-01 | 失败次数锁定 / 退避 | [M_ISSUES_FIX_PLAN.md](./M_ISSUES_FIX_PLAN.md) |
-| H-04 | `*Internal` → `internal` + 编排 API | [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) |
+| H-04 | `*Internal` → `internal` + 编排 API | ✅ 已落地（account friend + App 迁移） |
 | C-01 | 大版本删 proto field 4 | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
 | C-04 长期 / M-09 / M-16 | Native 签名、SQLCipher、pinning | 审计 §6.2 P3 |
 | （可选）nonce UUID 门禁 | 在 quote 之上评估强制 UUID；需兼容矩阵 | 本方案 §3.3 |
@@ -410,7 +410,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | H-07 | 🟨 | ✅ |
 | M-06 | 🟨 | ✅ |
 
-| C-03 / M-01 / H-04 可见性 | 🟨 | 仍归 Phase F |
+| C-03 / M-01 | 🟨 | 仍归 Phase F（H-04 可见性 ✅） |
 
 ---
 
@@ -517,9 +517,11 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | **本轮** | M-R5 / L-R1–5 | 无密码 clear；revoke UI；commit；ipfs；文档 | ✅ |
 | **流程** | H-R4 | 先发 toolkits，再关 local | **跳过（发布时再做）** |
 | **文档** | H-R5 | KDoc 禁止同引用 | ✅ |
-| **排期** | — | Phase F（C-03 / H-04 可见性收窄等） | 待做 |
+| **排期** | — | Phase F（C-03 / C-01 / C-04 / M-01 等） | 待做 |
+| **本批** | M-05 / H-04 | 拒空白 origin；`*Internal`→`internal` + `get*Unlocked` + App 迁移 | ✅ |
 | **软修** | H-07 残留 / H-04 软 / M-01 软 | 中间件地址脱敏；`*Internal` `@Deprecated`；解锁失败短退避 | ✅ |
 | **无感** | M-04 / M-14 | vault parse size+entry cap；removeAccount 幂等 KDoc | ✅ |
+| **无破坏** | M-05 / M-15 / M-18 | 空白 origin warn；VC 确认属宿主；`WALLET_INTERNAL` 哨兵+文档 | 📌 |
 
 ---
 
@@ -539,3 +541,5 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | 1.9 | 2026-08-03 | 落地 M-R5 / L-R1–5；验收 checkbox 与 README 同步 |
 | 1.10 | 2026-08-03 | 低影响软修：日志地址脱敏；`*Internal` Deprecated；解锁退避 |
 | 1.11 | 2026-08-03 | 无感边角：M-04 CodedInputStream+entry cap；M-14 幂等 KDoc |
+| 1.12 | 2026-08-03 | 无破坏收口：M-05 warn；M-15/M-18 📌 文档与 `WALLET_INTERNAL` |
+| 1.13 | 2026-08-03 | M-05 拒空白；H-04 `*Internal` internal + App/Orchestrator 迁移 |

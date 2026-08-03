@@ -49,6 +49,7 @@ open class WebAppInterface(
 
     /**
      * Set the DApp origin for security checks.
+     * Hosts **must** call this (e.g. on navigation) before [postMessage]; blank origin is rejected (M-05).
      * Stores a normalized web origin (`scheme://host[:port]`) when possible (H-R2 / M-R4).
      */
     fun setOrigin(origin: String) {
@@ -80,13 +81,17 @@ open class WebAppInterface(
     }
 
     /**
-     * Main entry point for DApp messages
+     * Main entry point for DApp messages.
+     * Rejects blank or unsafe origins (M-05). Hosts must [setOrigin] on navigation.
      */
     @JavascriptInterface
     open fun postMessage(json: String) {
-        // Silently reject messages from untrusted origins (when origin is set)
         val origin = getOrigin()
-        if (origin.isNotBlank() && !DAppConnectSdk.isSafeUrl(origin)) {
+        if (origin.isBlank()) {
+            Log.w(TAG, "postMessage rejected: blank origin (host must setOrigin)")
+            return
+        }
+        if (!DAppConnectSdk.isSafeUrl(origin)) {
             Log.w(TAG, "postMessage rejected: unsafe origin=$origin")
             return
         }

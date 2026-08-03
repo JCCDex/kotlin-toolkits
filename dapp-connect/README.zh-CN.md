@@ -113,6 +113,12 @@ if (!DAppConnectSdk.isSafeUrl(url)) {
 }
 ```
 
+宿主须在导航时调用 `webAppInterface.setOrigin(url)`。`postMessage` **拒绝空白或非安全 origin**（M-05）；生产环境必须接线 `setOrigin`。
+
+原生 NFT 等非 DApp 路径取 secret 使用哨兵 `WebOrigin.WALLET_INTERNAL`（不是可授权的 web origin，M-18）。
+
+`signCredentialForDApp` 只校验 VC 结构；**用户确认须由宿主 UI 完成**后再调用（M-15）。
+
 ## 3. Provider JS 注入
 
 SDK 内置 `ccdao-eip1193-provider.js`，实现：

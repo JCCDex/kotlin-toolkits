@@ -7,6 +7,13 @@ import android.net.Uri
  * Returns null if [url] is not an http(s) URL with a host.
  */
 object WebOrigin {
+    /**
+     * Sentinel origin for **native wallet UI** secret access (not a DApp page).
+     * Used so internal NFT/sign paths do not pass a blank string (M-18).
+     * Hosts must not treat this as a grantable web origin.
+     */
+    const val WALLET_INTERNAL = "wallet_internal"
+
     fun normalize(url: String): String? {
         val trimmed = url.trim()
         if (trimmed.isBlank()) return null

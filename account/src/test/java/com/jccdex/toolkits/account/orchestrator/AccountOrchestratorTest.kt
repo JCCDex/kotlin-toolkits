@@ -485,7 +485,7 @@ class AccountOrchestratorTest {
                 )
             testDb.store.addAccount(root)
             testDb.store.addAccount(existing)
-            coEvery { vault.getMnemonicInternal("jRootDerive") } returns "test mnemonic words".toByteArray()
+            coEvery { vault.getMnemonicUnlocked("jRootDerive") } returns "test mnemonic words".toByteArray()
 
             coEvery {
                 WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 1)
@@ -520,7 +520,7 @@ class AccountOrchestratorTest {
             mockkObject(WalletSdk)
             val root = AccountTestFixtures.hdRoot(id = "root-id", address = "jRootIdx")
             testDb.store.addAccount(root)
-            coEvery { vault.getMnemonicInternal("jRootIdx") } returns "mnemonic".toByteArray()
+            coEvery { vault.getMnemonicUnlocked("jRootIdx") } returns "mnemonic".toByteArray()
             coEvery {
                 WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 3)
             } returns
@@ -553,7 +553,7 @@ class AccountOrchestratorTest {
             mockkObject(WalletSdk)
             val root = AccountTestFixtures.hdRoot(id = "root-id", address = "jRootFail")
             testDb.store.addAccount(root)
-            coEvery { vault.getMnemonicInternal("jRootFail") } returns "mnemonic".toByteArray()
+            coEvery { vault.getMnemonicUnlocked("jRootFail") } returns "mnemonic".toByteArray()
             coEvery {
                 WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 1)
             } throws IllegalStateException("boom")

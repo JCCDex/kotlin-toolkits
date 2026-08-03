@@ -214,7 +214,7 @@ class AccountOrchestrator(
                     store.findById(rootAccountId)
                         ?: return@withLock AccountOperationResult.Error(AccountOperationError.RootAccountNotFound)
 
-                mnemonic = vault.getMnemonicInternal(rootAccount.address)
+                mnemonic = vault.getMnemonicUnlocked(rootAccount.address)
 
                 var deriveIndex = index ?: (store.getMaxIndexByChain(rootAccount.id, chain) + 1)
                 var subWallet =

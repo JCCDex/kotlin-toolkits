@@ -3,6 +3,7 @@ package com.jccdex.toolkits.dappconnect.middleware
 import android.util.Log
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
+import com.jccdex.toolkits.dappconnect.WebOrigin
 import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
@@ -245,7 +246,9 @@ class SwtcMiddleware(
     }
 
     /**
-     * Send NFT transaction with password (for native UI usage)
+     * Send NFT transaction for **native UI** (password already collected by the host).
+     * Uses [WebOrigin.WALLET_INTERNAL] instead of a blank origin so secret providers can
+     * distinguish intentional in-app access from missing DApp origin (M-18).
      */
     suspend fun sendNftTransactionWithPassword(
         address: String,
@@ -275,7 +278,7 @@ class SwtcMiddleware(
             txParams.put("Sequence", sequence)
         }
 
-        val secret = secretProvider.getSecretForAddress(address, "wallet_internal")
+        val secret = secretProvider.getSecretForAddress(address, WebOrigin.WALLET_INTERNAL)
             ?: throw IllegalStateException("Failed to get secret for address: $address")
 
         val signedTxBlob = WalletSdk.signSwtcTransaction(txParams, secret)

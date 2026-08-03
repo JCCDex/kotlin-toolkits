@@ -444,6 +444,19 @@ class VaultRepository private constructor(
         return getMnemonicInternal(address)
     }
 
+    /**
+     * Session-gated mnemonic read after [unlock] (H-04).
+     * For [com.jccdex.toolkits.account.orchestrator.AccountOrchestrator] HD derivation.
+     * App UI / export flows must use [getMnemonic] with an explicit password.
+     */
+    suspend fun getMnemonicUnlocked(address: String): ByteArray = getMnemonicInternal(address)
+
+    /**
+     * Session-gated private-key read after [unlock] (H-04).
+     * Prefer [getPrivateKey] with password from app code.
+     */
+    suspend fun getPrivateKeyUnlocked(address: String): ByteArray = getPrivateKeyInternal(address)
+
     suspend fun getMnemonicLanguage(address: String): String {
         if (!addressInMnemonics(address)) {
             throw IllegalArgumentException("Mnemonic is not exist")
@@ -454,11 +467,10 @@ class VaultRepository private constructor(
     }
 
     /**
-     * Session-gated mnemonic export. Prefer [getMnemonic] with an explicit password when possible.
-     * Visibility will narrow to `internal` in a later release (H-04).
+     * Session-gated mnemonic export for in-process orchestrator use after [unlock].
+     * App code must use [getMnemonic] with an explicit password (H-04).
      */
-    @Deprecated("Prefer getMnemonic(address, password); Internal stays public until H-04.")
-    suspend fun getMnemonicInternal(address: String): ByteArray {
+    internal suspend fun getMnemonicInternal(address: String): ByteArray {
         if (!addressInMnemonics(address)) {
             throw IllegalArgumentException("Mnemonic is not exist")
         }
@@ -482,11 +494,10 @@ class VaultRepository private constructor(
             .any { it.address.equals(address, true) }
 
     /**
-     * Session-gated private-key export. Prefer [getPrivateKey] with an explicit password when possible.
-     * Visibility will narrow to `internal` in a later release (H-04).
+     * Session-gated private-key export for in-process orchestrator use after [unlock].
+     * App code must use [getPrivateKey] with an explicit password (H-04).
      */
-    @Deprecated("Prefer getPrivateKey(address, password); Internal stays public until H-04.")
-    suspend fun getPrivateKeyInternal(address: String): ByteArray {
+    internal suspend fun getPrivateKeyInternal(address: String): ByteArray {
         if (!addressInKeys(address)) {
             throw IllegalArgumentException("Private key is not exist")
         }

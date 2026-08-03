@@ -44,7 +44,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | H-01 | ✅ | 缓存键含 `origin\|address` |
 | H-02 | ✅ | `IEthMiddleware.sendTransaction(tx, origin)`；空 origin 拒绝 |
 | H-03 | ✅ | `load*Js` 已 `jsQuote`；响应 `nonce`/`result` 已 `JSONObject.quote`（见 R-01） |
-| H-04 | 🟨 | 需解锁会话；`*Internal` 已 `@Deprecated`，仍 public（可见性收窄 → Phase F） |
+| H-04 | ✅ | `get*Internal` 为 `internal`；公开 `get*Unlocked` 仅供编排；App 改密码门控 / Orchestrator |
 | H-05 | ✅ | `bindVcidToDid` 强制 `verifyCredential` |
 | H-06 | ✅ | `NftStore.fetch*` 过 `SsrfGuard`；DNS **fail-closed** |
 | H-07 | ✅ | 响应/postMessage/bridge 脱敏；中间件地址/tx 日志已 scrub |
@@ -52,7 +52,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-02 | ✅ | `importPrivateKeys` 加 mutex |
 | M-03 | ✅ | changePassword 逐条 wipe |
 | M-04 | ✅ | blob + `CodedInputStream` size limit；keys/mnemonics/secrets ≤ 1024 |
-| M-05 | 🟨 | origin 非空才 `isSafeUrl`；空 origin 可跳过 |
+| M-05 | ✅ | 空白 / 非安全 origin 均拒 `postMessage`；宿主须 `setOrigin` |
 | M-06 | ✅ | 强制 `setRequestAccountsCallback`（ETH+SWTC）；App 授权 UI + origin 持久化 |
 | M-07 | ✅ | bridge 仅允许 asset URL |
 | M-08 | ✅ | `allowFileAccess = false` |
@@ -62,10 +62,10 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-12 | ✅ | `setCurrentAccount` 校验存在 |
 | M-13 | ✅ | preferredAvatar 校验 credential |
 | M-14 | ✅ | 先验密码；缺失账户 Success（幂等约定，见 KDoc） |
-| M-15 | 🟨 | 结构校验；无库内用户确认 |
+| M-15 | 📌 | 结构校验在 SDK；用户确认属宿主（无库内回调，避免破坏） |
 | M-16 | ❌ | 无 pinning（未在本轮） |
 | M-17 | ✅ | 派生不再向外返回私钥 |
-| M-18 | 🟨 | DApp SWTC 传 origin；内部 NFT 路径用 `wallet_internal` |
+| M-18 | 📌 | DApp 传真实 origin；原生 NFT 用 `WebOrigin.WALLET_INTERNAL` 哨兵 |
 | **R-01** | ✅ | `WebAppInterfaceWithWebView`：`JSONObject.quote(nonce)` + 字符串 result 一律 quote |
 
 **复审后建议优先阅读 / 跟进顺序（供逐项了解）：**
@@ -369,8 +369,8 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-02 | `importPrivateKeys` 缺少 `mutex` | `VaultRepository.kt` | 与其他写操作一致加锁 | ✅ |
 | M-03 | `changePassword` 批量解密时明文未及时 wipe | `VaultRepository.kt` | 逐条处理并在 `finally` 中 wipe | ✅ |
 | M-04 | protobuf 解析无大小限制 | `VaultSerializer.kt` | `CodedInputStream.setSizeLimit()`；限制 repeated 字段 | ✅ |
-| M-05 | `postMessage` 无 origin 强制校验、无 per-method 用户确认 | `WebAppInterface.kt` | 库内校验 URL origin；敏感方法需宿主确认 | 🟨 非空才校验 |
-| M-06 | `eth_requestAccounts` 直接返回全部账户 | `EthMiddleware.kt` | EIP-1193 connect 授权；按 origin 持久化授权 | 🟨 可选回调 |
+| M-05 | `postMessage` 无 origin 强制校验、无 per-method 用户确认 | `WebAppInterface.kt` | 库内校验 URL origin；敏感方法需宿主确认 | ✅ 拒空白+unsafe |
+| M-06 | `eth_requestAccounts` 直接返回全部账户 | `EthMiddleware.kt` | EIP-1193 connect 授权；按 origin 持久化授权 | ✅ |
 | M-07 | 桥接 WebView 无导航白名单 | `WebviewBridgeClient.kt` | 仅允许 asset URL | ✅ |
 | M-08 | `allowFileAccess = true` | `WebviewBridgeClient.kt` | 非必要则关闭 | ✅ |
 | M-09 | Room 数据库明文存储 | 各 `*RoomDatabase.kt` | SQLCipher 或 Keystore 包裹 DB 密钥 | ❌ |
@@ -379,10 +379,10 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-12 | `setCurrentAccount` 不校验 accountId 存在 | `RoomAccountStore.kt` | 写入前 `findById` 校验 | ✅ |
 | M-13 | `updatePreferredAvatar` 不校验 credential 存在 | `DidSdk.kt` | 发布前校验 credentials 列表 | ✅ |
 | M-14 | `removeAccount` 账户不存在时跳过密码校验 | `AccountOrchestrator.kt` | 统一先验证或返回 `AccountNotFound` | ✅ 先验密码；缺失 Success 幂等 |
-| M-15 | `signCredentialForDApp` 签名 DApp 可控 payload | `DidSdk.kt` | Schema 校验 + 用户确认 UI | 🟨 结构校验 |
+| M-15 | `signCredentialForDApp` 签名 DApp 可控 payload | `DidSdk.kt` | Schema 校验 + 用户确认 UI | 📌 结构校验；确认属宿主 |
 | M-16 | NFT/RPC HTTP 无证书固定 | 各 remote client | 已知 RPC 节点 pinning | ❌ |
 | M-17 | `DerivedSubAccount` 向调用方返回明文私钥 | `AccountOrchestratorModels.kt` | 编排器内原子导入 vault | ✅ |
-| M-18 | SWTC NFT 路径 `getSecretForAddress(address, "")` | `SwtcMiddleware.kt` | 传递并校验 origin | 🟨 DApp 已传；内部路径 `wallet_internal` |
+| M-18 | SWTC NFT 路径 `getSecretForAddress(address, "")` | `SwtcMiddleware.kt` | 传递并校验 origin | 📌 `WebOrigin.WALLET_INTERNAL` |
 
 ---
 
@@ -483,7 +483,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 | 🟨 Session |
 | 2 | 密码 proof 改为不可逆验证；迁移现有 vault | C-02 | ✅ |
 | 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 | ✅ Orchestrator |
-| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 | 🟨 |
+| 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 | ✅ |
 
 ### P1 — 短期（DApp 与桥接）〔初审原文〕
 

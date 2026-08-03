@@ -158,7 +158,7 @@ JS 资产 / 第三方密码学库
 ### 4.2 密码与特权 API
 
 - 面向用户的读取：`getPrivateKey` / `getMnemonic` / `getSecret` 走 `verifyPassword`。
-- `getPrivateKeyInternal` / `getMnemonicInternal` **不校验密码**，供编排层派生等使用——**不要直接暴露给 UI / DApp**。
+- `getMnemonicUnlocked` / `getPrivateKeyUnlocked` 需已 `unlock`，供编排层派生——**App UI / 导出请用带密码的 getMnemonic / getPrivateKey**。`get*Internal` 已为 `internal`。
 - 首次 HD 导入且 vault 无密码时，需传入密码，否则 `PasswordRequired`。
 - 删除账户：`removeAccount(id, password)`；仅当该地址无其它账户时才会从 vault 移除密钥。
 
