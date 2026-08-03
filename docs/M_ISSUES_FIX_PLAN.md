@@ -4,9 +4,11 @@
 
 **问题：** `verifyPassword` 不走 Argon2 重算，无暴力破解防护。
 
-**修复：** C-02 已修——HMAC 格式现在每次从输入密码重新 Argon2 派生 key 验证。速率限制属 UI 层责任（app 侧实现密码框冷却），不在 SDK 范围。
+**修复：**
+- C-02：HMAC 路径每次从输入密码 Argon2 派生再验 proof。
+- M-01：`VaultAuthLockout` 持久化失败次数；连续 5 次失败后锁定，时长阶梯 1 min → 5 min → 15 min；成功或 `clearAllData` 清零。锁定时 `unlock`/`verifyPassword` 抛 `VaultAuthLockedException`。
 
-**状态：** ✅ C-02 已覆盖。
+**状态：** ✅
 
 ---
 

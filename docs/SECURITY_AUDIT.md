@@ -48,7 +48,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | H-05 | ✅ | `bindVcidToDid` 强制 `verifyCredential` |
 | H-06 | ✅ | `NftStore.fetch*` 过 `SsrfGuard`；DNS **fail-closed** |
 | H-07 | ✅ | 响应/postMessage/bridge 脱敏；中间件地址/tx 日志已 scrub |
-| M-01 | 🟨 | Argon2 重算有；App 解锁短退避；无账户锁定 |
+| M-01 | ✅ | Argon2 + 失败 5 次锁定（1/5/15 分钟阶梯，持久化） |
 | M-02 | ✅ | `importPrivateKeys` 加 mutex |
 | M-03 | ✅ | changePassword 逐条 wipe |
 | M-04 | ✅ | blob + `CodedInputStream` size limit；keys/mnemonics/secrets ≤ 1024 |
@@ -365,7 +365,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 | ID | 问题 | 位置 | 修复要点 | 复审 |
 |----|------|------|----------|------|
-| M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt` | 验证时重跑 Argon2；失败计数与退避 | 🟨 有 Argon2；App 解锁短退避 |
+| M-01 | `verifyPassword` 不走 Argon2 重算，无速率限制/账户锁定 | `VaultRepository.kt` | 验证时重跑 Argon2；失败计数与退避 | ✅ |
 | M-02 | `importPrivateKeys` 缺少 `mutex` | `VaultRepository.kt` | 与其他写操作一致加锁 | ✅ |
 | M-03 | `changePassword` 批量解密时明文未及时 wipe | `VaultRepository.kt` | 逐条处理并在 `finally` 中 wipe | ✅ |
 | M-04 | protobuf 解析无大小限制 | `VaultSerializer.kt` | `CodedInputStream.setSizeLimit()`；限制 repeated 字段 | ✅ |
@@ -501,7 +501,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 |------|--------|----------|------|
 | 10 | `bindVcidToDid` 增加 `verifyCredential` | H-05 | ✅ |
 | 11 | NFT fetch URL 白名单与 SSRF 防护 | H-06 | ✅ |
-| 12 | `verifyPassword` Argon2 + 速率限制 | M-01 | 🟨 |
+| 12 | `verifyPassword` Argon2 + 速率限制 | M-01 | ✅ |
 | 13 | `importPrivateKeys` 加 mutex | M-02 | ✅ |
 | 14 | 桥接 WebView 导航白名单 | M-07 | ✅ |
 | 15 | `eth_requestAccounts` connect 授权流 | M-06 | 🟨 |

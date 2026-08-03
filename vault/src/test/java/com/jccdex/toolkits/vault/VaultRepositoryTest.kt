@@ -49,6 +49,11 @@ class VaultRepositoryTest {
                 set(null, null)
             }
         }
+        appContext
+            .getSharedPreferences(VaultAuthLockout.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
         vault = VaultRepository.get(appContext)
 
         mockkStatic("com.jccdex.toolkits.vault.util.WipeKt")
@@ -661,5 +666,25 @@ class VaultRepositoryTest {
             Assertions.assertThat(vault.isUnlocked).isFalse()
             Assertions.assertThat(vault.unlock(password.copyOf())).isTrue()
             Assertions.assertThat(vault.isUnlocked).isTrue()
+        }
+
+    @Test
+    fun test_m01_unlockLocksAfterMaxFailures() =
+        runTest {
+            vault.clearAllData()
+            val password = "correctPassword1".toByteArray()
+            vault.initializePassword(password.copyOf())
+            vault.lock()
+            repeat(VaultAuthLockout.MAX_FAILURES - 1) {
+                Assertions.assertThat(vault.unlock("wrong".toByteArray())).isFalse()
+                Assertions.assertThat(vault.isAuthLocked()).isFalse()
+            }
+            assertFailsWith<VaultAuthLockedException> {
+                vault.unlock("wrong".toByteArray())
+            }
+            Assertions.assertThat(vault.isAuthLocked()).isTrue()
+            assertFailsWith<VaultAuthLockedException> {
+                vault.unlock(password.copyOf())
+            }
         }
 }
