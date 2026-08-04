@@ -30,7 +30,7 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 ### 1.1 修复复审结论（2026-07-31）
 
 PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多项修复（VaultSession、HMAC proof、nonce、origin 缓存、VC 验签、编排锁与私钥不出模型等），但复审时 **未完全收口**。  
-**实施更新（2026-08-03，`SECURITY_REAUDIT_FIX_PLAN` Phase A–E）：** R-01/H-03、H-02、C-05、H-06、H-07、M-06 已落地。**2026-08-04：** C-01 field 4 `reserved` 已收口。残余见 C-04 长期 / Phase F（M-09 / M-16）。
+**实施更新（2026-08-03，`SECURITY_REAUDIT_FIX_PLAN` Phase A–E）：** R-01/H-03、H-02、C-05、H-06、H-07、M-06 已落地。**2026-08-04：** C-01 field 4 `reserved` 已收口。残余 C-04 长期 / M-09 / M-16 **有意暂缓**（原因见 [SECURITY_REAUDIT_FIX_PLAN §8.1](./SECURITY_REAUDIT_FIX_PLAN.md)）。
 
 **复审状态图例：** ✅ 已关闭 · 🟨 部分修复 · ❌ 未关闭 / 新发现 · 📌 有意兼容残留
 
@@ -39,7 +39,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | C-01 | ✅ | VaultSession + unlock；proto field 4 已 `reserved`，无磁盘 `derivedKey` |
 | C-02 | ✅ | HMAC proof；校验路径重跑 Argon2 |
 | C-03 | ✅ | WebMessagePort 回传；不再暴露 `window.ccdao.sendResponse`/`sendError` |
-| C-04 | 🟨 | 导航/文件访问收紧、部分日志关闭；密钥仍进 JS（长期项） |
+| C-04 | 🟨 | 短期日志/WebView 已部分收紧；**长期 Native 签名暂缓**（架构重写，见 [SECURITY_REAUDIT_FIX_PLAN §8.1](./SECURITY_REAUDIT_FIX_PLAN.md)） |
 | C-05 | ✅ | Orchestrator：`clearExistingPassword` + `clearWalletData(password)`；`PasswordRequiredForClear` |
 | H-01 | ✅ | 缓存键含 `origin\|address` |
 | H-02 | ✅ | `IEthMiddleware.sendTransaction(tx, origin)`；空 origin 拒绝 |
@@ -56,14 +56,14 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | M-06 | ✅ | 强制 `setRequestAccountsCallback`（ETH+SWTC）；App 授权 UI + origin 持久化 |
 | M-07 | ✅ | bridge 仅允许 asset URL |
 | M-08 | ✅ | `allowFileAccess = false` |
-| M-09 | ❌ | Room 仍明文（未在本轮） |
+| M-09 | ❌ | Room 仍明文；**暂缓**（独立大工程，见复审方案 §8.1） |
 | M-10 | ✅ | `deriveSubAccount` mutex |
 | M-11 | ✅ | pending 用 ConcurrentHashMap |
 | M-12 | ✅ | `setCurrentAccount` 校验存在 |
 | M-13 | ✅ | preferredAvatar 校验 credential |
 | M-14 | ✅ | 先验密码；缺失账户 Success（幂等约定，见 KDoc） |
 | M-15 | 📌 | 结构校验在 SDK；用户确认属宿主（无库内回调，避免破坏） |
-| M-16 | ❌ | 无 pinning（未在本轮） |
+| M-16 | ❌ | 无 pinning；**暂缓**（需运维清单与换证流程，见复审方案 §8.1） |
 | M-17 | ✅ | 派生不再向外返回私钥 |
 | M-18 | 📌 | DApp 传真实 origin；原生 NFT 用 `WebOrigin.WALLET_INTERNAL` 哨兵 |
 | **R-01** | ✅ | `WebAppInterfaceWithWebView`：`JSONObject.quote(nonce)` + 字符串 result 一律 quote |
@@ -74,7 +74,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. ~~H-02~~ ✅ Phase B  
 3. ~~C-05~~ ✅ Phase C  
 4. ~~H-06~~ ✅ Phase D  
-5. ~~H-07 / M-06~~ ✅ Phase E；残余 **C-04 长期 / M-09 / M-16** → Phase F（C-01 / C-03 已另批收口）
+5. ~~H-07 / M-06~~ ✅ Phase E；残余 **C-04 长期 / M-09 / M-16** → **暂缓**（原因：[SECURITY_REAUDIT_FIX_PLAN §8.1](./SECURITY_REAUDIT_FIX_PLAN.md)）
 
 相关修复方案文档见 [docs/README.md](./README.md)。
 
@@ -204,7 +204,9 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 **修复方案：** 短期：console 转发加守卫、清理 bridge JS debug log、release 脱敏日志、WebView 设置加固。长期 Native 签名属架构重构，见 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) Phase F。
 
-**复审（2026-07-31）：** 🟨 短期部分落地（`allowFileAccess=false`、asset 导航白名单、部分 console 关闭）。密钥仍经 JS 签名；`wallet-bridge.js` 仍可能残留 debug log。长期 Native 签名未做。
+**复审（2026-07-31）：** 🟨 短期部分落地（`allowFileAccess=false`、asset 导航白名单、部分 console 关闭）。密钥仍经 JS 签名；长期 Native 签名未做。
+
+**暂缓说明（2026-08-04）：** 长期迁 Native **有意暂缓**——须重做 JS 密码学路径，架构与回归成本高；详见 [SECURITY_REAUDIT_FIX_PLAN §8.1](./SECURITY_REAUDIT_FIX_PLAN.md)。
 
 ---
 
@@ -599,6 +601,7 @@ nft/
 | 1.5 | 2026-08-04 | 文档精简：删除已落地单点修复方案，链接改指向现状/残留文档 |
 | 1.6 | 2026-08-04 | C-01 收口：proto field 4 `reserved`；移除 `clearDerivedKey` 迁移 |
 | 1.7 | 2026-08-04 | 同步残余表述：跟进顺序与威胁表对齐 field 4 reserved / Phase F |
+| 1.8 | 2026-08-04 | 矩阵标注 C-04 / M-09 / M-16 **暂缓**并链到复审方案 §8.1 |
 
 ---
 

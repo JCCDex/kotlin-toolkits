@@ -2,7 +2,7 @@
 
 **关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) §1.1 / §6.2（复审 2026-07-31）  
 **基线：** `c2f00dc`（复审文档）/ 代码对照 PR `#16`（`69f69c1`）及当前 `sdk20`  
-**状态：** ✅ Phase A–E 已实施；C-01 / C-03 / M-01 / H-04 已落地；Phase F 残余见 §8 / §13.5（C-04 长期 / M-09 / M-16）  
+**状态：** ✅ Phase A–E 已实施；C-01 / C-03 / M-01 / H-04 已落地；Phase F 残余 **C-04 长期 / M-09 / M-16 暂缓**（§8.1）  
 **日期：** 2026-08-03  
 
 **本文结构：** §1–2 目标与阶段 → §3–8 Phase A–F → §9–11 跨仓顺序 / 测试 / 矩阵 → §12 审核纪要 → **§13 实施后残留（唯一维护入口）** → §14 修订记录。
@@ -36,9 +36,9 @@ PR `#16` 已实质推进 VaultSession、HMAC proof、nonce、origin 缓存、VC 
 
 | 项 | 原因 / 现状 |
 |----|-------------|
-| C-04 长期：签名迁出 WebView | 架构重构；**仍待做** |
-| M-09 Room SQLCipher | 独立大工程；**仍待做** |
-| M-16 RPC pinning | 需运维/清单配合；**仍待做** |
+| C-04 长期：签名迁出 WebView | **暂缓** — 架构重写；见 §8.1 |
+| M-09 Room SQLCipher | **暂缓** — 独立大工程；见 §8.1 |
+| M-16 RPC pinning | **暂缓** — 需运维/清单与换证流程；见 §8.1 |
 | C-03 去掉 `window.ccdao.sendResponse` / WebMessagePort | ✅ 已另批落地 |
 | H-04 将 `*Internal` 改为 `internal` | ✅ 已另批落地 |
 | 删除 proto `derivedKey` field 4 | ✅ 已落地（`reserved 4`）；见 [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
@@ -359,8 +359,22 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | M-01 | 失败次数锁定 / 退避 | ✅ SDK `VaultAuthLockout`（5 次 → 1/5/15 min） |
 | H-04 | `*Internal` → `internal` + 编排 API | ✅ 已落地（account friend + App 迁移） |
 | C-01 | ✅ proto field 4 `reserved`；无磁盘持久化 | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
-| C-04 长期 / M-09 / M-16 | Native 签名、SQLCipher、pinning | 审计 §6.2 P3 |
+| C-04 长期 / M-09 / M-16 | Native 签名、SQLCipher、pinning | **暂缓**，见 §8.1 |
 | （可选）nonce UUID 门禁 | 在 quote 之上评估强制 UUID；需兼容矩阵 | 本方案 §3.3 |
+
+### 8.1 残余项暂缓原因（2026-08-04）
+
+安全主路径（A–E + C-01 / C-03 / M-01 / H-04 等）已收口。下列三项 **有意暂缓**，不是遗忘；启动前须单独立方案与里程碑。
+
+| ID | 要做什么 | 为何现在不做 | 当前缓解 / 可接受性 |
+|----|----------|--------------|---------------------|
+| **C-04 长期** | 签名从隐藏 WebView/JS 迁到 **Native**（密钥不再进 JS 堆） | **架构级重写**：今日 ETH/SWTC/DID 等签名依赖 `wallet-bridge.js` / `did-bridge.js` 等 JS 密码学路径；迁 Native 需重做等价算法与序列化、多链对测、回归面大。不是小 PR。短期 C-04（日志/WebView 收紧）已部分落地。 | 短期：console/日志脱敏、`allowFileAccess` 等；密钥仍经 JS 的残余风险已知并接受至专项排期 |
+| **M-09** | Room 库 SQLCipher（或等价）加密 | **独立大工程**：迁移已有明文 Room、密钥托管、升级路径与两 App 全量回归；与钱包 vault（Tink）是另一条存储面。 | 账户元数据等敏感度低于 vault 密文；vault 已有外层 Tink + 会话模型 |
+| **M-16** | NFT/RPC HTTPS **证书固定（pinning）** | **需运维/清单配合**：要维护「域名 → 证书/公钥指纹」；节点换证必须同步发版或远程更新 pin，否则用户会大面积连不上。纯开发钉死易造成生产事故。 | 仍走系统信任的正常 TLS；抗「自定义恶意 CA / 部分 MITM」弱于 pinning，接受至有稳定节点清单与换证流程 |
+
+**另：** H-R4（关 `jccdex.toolkits.mode=local` 切远端）属**发版流程**，开发联调期 N/A，见 §13.2。
+
+**何时重启：** 产品排期允许专项迭代，且（对 M-16）运维能提供可 pin 的节点与换证 SLA 时，再开独立方案文档，不在本复审 A–E 范围内继续零敲碎打。
 
 ---
 
@@ -517,7 +531,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | **本轮** | M-R5 / L-R1–5 | 无密码 clear；revoke UI；commit；ipfs；文档 | ✅ |
 | **流程** | H-R4 | 发版时关 local 切远端 | **开发期 N/A（非待办）** |
 | **文档** | H-R5 | KDoc 禁止同引用 | ✅ |
-| **排期** | — | Phase F：C-04 长期 / M-09 / M-16（C-01 ✅） | 待做 |
+| **排期** | — | Phase F：C-04 长期 / M-09 / M-16 | **暂缓（原因见 §8.1）** |
 | **本批** | C-03 | WebMessagePort 回传；移除 window sendResponse/Error | ✅ |
 | **本批** | M-01 | SDK 持久化失败锁定 + 两 App 展示 | ✅ |
 | **本批** | M-05 / H-04 | 拒空白 origin；`*Internal`→`internal` + `get*Unlocked` + App 迁移 | ✅ |
@@ -548,3 +562,4 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | 1.14 | 2026-08-03 | M-01：VaultAuthLockout 5 次失败阶梯锁定 |
 | 1.15 | 2026-08-03 | C-03：NativeResponseChannel（WebMessagePort）+ 移除 window sendResponse |
 | 1.16 | 2026-08-04 | §1.2 非目标回写：C-01 / C-03 / H-04 已落地；仅 C-04 长期 / M-09 / M-16 仍待做 |
+| 1.17 | 2026-08-04 | §8.1：写明 C-04 / M-09 / M-16 **暂缓原因**（架构/工程/运维），非遗忘 |
