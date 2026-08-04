@@ -32,16 +32,16 @@ PR `#16` 已实质推进 VaultSession、HMAC proof、nonce、origin 缓存、VC 
 5. 清理敏感日志与 connect 授权缺口（H-07 / C-04 短期、M-06）。  
 6. 文档与测试同步；补丁后再做一次复审勾选。
 
-### 1.2 非目标（本轮不做）
+### 1.2 非目标（起草时本轮不做；部分已另批落地）
 
-| 项 | 原因 |
-|----|------|
-| C-04 长期：签名迁出 WebView | 架构重构 |
-| M-09 Room SQLCipher | 独立大工程 |
-| M-16 RPC pinning | 需运维/清单配合 |
-| C-03 去掉 `window.ccdao.sendResponse` / WebMessagePort | P2；本轮以 R-01 止血 |
-| H-04 将 `*Internal` 改为 `internal` | 会话守卫已落地；可见性收窄单独排期 |
-| 删除 proto `derivedKey` field 4 | 大版本迁移项，见 [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
+| 项 | 原因 / 现状 |
+|----|-------------|
+| C-04 长期：签名迁出 WebView | 架构重构；**仍待做** |
+| M-09 Room SQLCipher | 独立大工程；**仍待做** |
+| M-16 RPC pinning | 需运维/清单配合；**仍待做** |
+| C-03 去掉 `window.ccdao.sendResponse` / WebMessagePort | ✅ 已另批落地 |
+| H-04 将 `*Internal` 改为 `internal` | ✅ 已另批落地 |
+| 删除 proto `derivedKey` field 4 | ✅ 已落地（`reserved 4`）；见 [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
 
 ---
 
@@ -547,3 +547,4 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | 1.13 | 2026-08-03 | M-05 拒空白；H-04 `*Internal` internal + App/Orchestrator 迁移 |
 | 1.14 | 2026-08-03 | M-01：VaultAuthLockout 5 次失败阶梯锁定 |
 | 1.15 | 2026-08-03 | C-03：NativeResponseChannel（WebMessagePort）+ 移除 window sendResponse |
+| 1.16 | 2026-08-04 | §1.2 非目标回写：C-01 / C-03 / H-04 已落地；仅 C-04 长期 / M-09 / M-16 仍待做 |

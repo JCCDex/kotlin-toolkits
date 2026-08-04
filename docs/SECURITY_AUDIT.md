@@ -74,7 +74,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. ~~H-02~~ ✅ Phase B  
 3. ~~C-05~~ ✅ Phase C  
 4. ~~H-06~~ ✅ Phase D  
-5. ~~H-07 / M-06~~ ✅ Phase E；残余 C-03 / C-04 长期 → Phase F
+5. ~~H-07 / M-06~~ ✅ Phase E；残余 **C-04 长期 / M-09 / M-16** → Phase F（C-01 / C-03 已另批收口）
 
 相关修复方案文档见 [docs/README.md](./README.md)。
 
@@ -450,7 +450,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 | 攻击者能力 | 当前防护 | 仍存缺口 |
 |------------|----------|----------|
-| 离线窃取 `vault.pb`（无 Keystore） | Tink AEAD | 较强；旧 vault 首次 unlock 前可能仍含 derivedKey |
+| 离线窃取 `vault.pb`（无 Keystore） | Tink AEAD；proto 无 `derivedKey`（field 4 reserved） | 较强；极旧 blob 若仍含 unknown field 4，亦不参与解密 |
 | Root / 已 unlock 进程 | 会话密钥 + HMAC proof | 解锁后 `*Internal` 仍可读；编排层无密码擦除 |
 | 恶意 DApp | origin 缓存隔离、签名/sendTx 传 origin、nonce quote | connect 可选（M-06）；`sendResponse` 仍挂 window（C-03） |
 | 弱密码在线猜解 | Argon2 校验成本 | 仍无失败锁定 |
@@ -598,6 +598,7 @@ nft/
 | 1.4 | 2026-08-03 | 增加 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) 残留实施细则链接 |
 | 1.5 | 2026-08-04 | 文档精简：删除已落地单点修复方案，链接改指向现状/残留文档 |
 | 1.6 | 2026-08-04 | C-01 收口：proto field 4 `reserved`；移除 `clearDerivedKey` 迁移 |
+| 1.7 | 2026-08-04 | 同步残余表述：跟进顺序与威胁表对齐 field 4 reserved / Phase F |
 
 ---
 
