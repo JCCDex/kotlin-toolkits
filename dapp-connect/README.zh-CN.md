@@ -27,13 +27,13 @@ val initJs = DAppConnectSdk.loadInitJs("0x1", "https://eth-rpc.example.com")
 
 val webView = WebView(context).apply {
     settings.javaScriptEnabled = true
-    addJavascriptInterface(
-        DAppConnectSdk.createWebAppInterface(this, eth, swtc, accounts, secrets, nfts),
-        "_tw_"
-    )
+    val wai = DAppConnectSdk.createWebAppInterface(this, eth, swtc, accounts, secrets, nfts)
+    addJavascriptInterface(wai, "_tw_")
     webViewClient = object : WebViewClient() {
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-            view?.evaluateJavascript(providerJs, null)
+            // C-03: inject provider, then install WebMessagePort for responses
+            // (do not rely on window.ccdao.sendResponse — it is no longer exposed).
+            view?.evaluateJavascript(providerJs) { wai.installResponseChannel() }
             view?.evaluateJavascript(initJs, null)
         }
     }
@@ -76,7 +76,21 @@ val secretProvider = CachingSecretProvider(object : SecretProvider {
 - **绝对上限 20 秒**：超过后强制重新认证
 - **生命周期清理**：通过 `clearCache()` 在切后台 / 锁屏 / 切换账户时清除
 
-### 2.3 地址推送
+### 2.3 强制 `requestAccounts` 回调（M-06，破坏性）
+
+生产环境 **必须** 在 ETH 与 SWTC middleware 上设置 `setRequestAccountsCallback`。未设置时 `eth_requestAccounts` / `swtc_requestAccounts` 会抛出 `UserRejectedException`（拒绝连接），不再默默返回账户。
+
+```kotlin
+eth.setRequestAccountsCallback { origin ->
+    // 展示确认 UI；已授权 origin 可直接 true
+    showConnectDialog(origin)
+}
+swtc.setRequestAccountsCallback { origin -> showConnectDialog(origin) }
+```
+
+建议按规范化 web origin（`scheme://host[:port]`）持久化授权，并在钱包重置时清除。
+
+### 2.4 地址推送
 
 DApp 内切换账户后，主动推送让 DApp 感知：
 
@@ -90,7 +104,7 @@ webView.evaluateJavascript(
     DAppConnectSdk.loadAddressJs(address, isSwtc = false), null)
 ```
 
-### 2.4 URL 安全校验
+### 2.5 URL 安全校验
 
 ```kotlin
 if (!DAppConnectSdk.isSafeUrl(url)) {
@@ -98,6 +112,12 @@ if (!DAppConnectSdk.isSafeUrl(url)) {
     return
 }
 ```
+
+宿主须在导航时调用 `webAppInterface.setOrigin(url)`。`postMessage` **拒绝空白或非安全 origin**（M-05）；生产环境必须接线 `setOrigin`。
+
+原生 NFT 等非 DApp 路径取 secret 使用哨兵 `WebOrigin.WALLET_INTERNAL`（不是可授权的 web origin，M-18）。
+
+`signCredentialForDApp` 只校验 VC 结构；**用户确认须由宿主 UI 完成**后再调用（M-15）。
 
 ## 3. Provider JS 注入
 

@@ -272,6 +272,10 @@ class DidSdk internal constructor(
      * [payload] 为 DApp 通过 @jccdex/did issueVC sign 回调传来的对象 JSON，含
      * credential / keyDoc / compactProof / issuerObject / addSuiteContext / type。
      * 这里补上 [privateKey] 后交由 JS 桥跑完整 issueCredential，返回签名后的 VC（JSON 字符串）。
+     *
+     * SDK validates credential **structure** only (M-15). The host app must obtain
+     * explicit user confirmation before calling this — library-side confirm UI is deferred
+     * to avoid a breaking callback API.
      */
     suspend fun signCredentialForDApp(
         privateKey: String,

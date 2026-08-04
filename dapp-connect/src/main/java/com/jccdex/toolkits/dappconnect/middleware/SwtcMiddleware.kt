@@ -3,6 +3,8 @@ package com.jccdex.toolkits.dappconnect.middleware
 import android.util.Log
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
+import com.jccdex.toolkits.dappconnect.WebOrigin
+import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
@@ -24,12 +26,25 @@ class SwtcMiddleware(
         private const val TAG = "SwtcMiddleware"
     }
 
+    @Volatile private var requestAccountsCallback: RequestAccountsCallback? = null
+
+    override fun setRequestAccountsCallback(callback: RequestAccountsCallback?) {
+        requestAccountsCallback = callback
+    }
+
     /**
      * Handle swtc_requestAccounts RPC call
      * Returns list of available SWTC addresses (excluding HD root accounts)
      */
     override suspend fun requestAccounts(origin: String): JSONArray {
         Log.d(TAG, "requestAccounts called from origin: $origin")
+
+        val cb =
+            requestAccountsCallback
+                ?: throw UserRejectedException("RequestAccountsCallback is not set")
+        if (!cb.onRequestAccounts(origin)) {
+            throw UserRejectedException("User rejected the requestAccounts request")
+        }
 
         val accounts = accountProvider.accounts.first()
         // Filter SWTC accounts and exclude HD root accounts
@@ -56,6 +71,7 @@ class SwtcMiddleware(
         txParams: JSONObject,
         origin: String
     ): String {
+        require(origin.isNotBlank()) { "origin must not be blank for sendTransaction" }
         Log.d(TAG, "sendTransaction called from origin: $origin")
 
         val account = txParams.getString("Account")
@@ -71,7 +87,7 @@ class SwtcMiddleware(
             throw IllegalArgumentException("Account is not a SWTC account: $account")
         }
 
-        Log.d(TAG, "Processing transaction for account: $account")
+        Log.d(TAG, "Processing transaction")
 
         // Get sequence if not provided
         if (!txParams.has("Sequence")) {
@@ -112,7 +128,7 @@ class SwtcMiddleware(
             throw IllegalArgumentException("Account is not a SWTC account: $account")
         }
 
-        Log.d(TAG, "Processing multi-sign for account: $account")
+        Log.d(TAG, "Processing multi-sign")
 
         // Get secret for signing
         val secret = secretProvider.getSecretForAddress(account, origin)
@@ -124,7 +140,6 @@ class SwtcMiddleware(
         // Sign using WalletSdk
         val result = WalletSdk.multiSign(tx, secret)
 
-        Log.d(TAG, "Multi-sign result: $result")
         return JSONObject().apply {
             put("result", result)
         }
@@ -139,7 +154,7 @@ class SwtcMiddleware(
         data: String,
         origin: String
     ): String {
-        Log.d(TAG, "signMessage called from origin: $origin, from: $from")
+        Log.d(TAG, "signMessage called from origin: $origin")
 
         // Verify address exists in wallet
         val accounts = accountProvider.accounts.first()
@@ -152,7 +167,7 @@ class SwtcMiddleware(
             throw IllegalArgumentException("Address is not a SWTC address: $from")
         }
 
-        Log.d(TAG, "Signing message for address: $from")
+        Log.d(TAG, "Signing message")
 
         // Get secret for signing
         val secret = secretProvider.getSecretForAddress(from, origin)
@@ -161,7 +176,6 @@ class SwtcMiddleware(
         // Sign message using WalletSdk
         val signature = WalletSdk.signMessage(from, data, secret)
 
-        Log.d(TAG, "Message signing result: $signature")
         return signature
     }
 
@@ -173,7 +187,7 @@ class SwtcMiddleware(
         address: String,
         origin: String
     ): String {
-        Log.d(TAG, "getPublicKey called from origin: $origin, address: $address")
+        Log.d(TAG, "getPublicKey called from origin: $origin")
 
         // Verify address exists in wallet
         val accounts = accountProvider.accounts.first()
@@ -186,12 +200,12 @@ class SwtcMiddleware(
             throw IllegalArgumentException("Address is not a SWTC address: $address")
         }
 
-        Log.d(TAG, "Getting public key for address: $address")
+        Log.d(TAG, "Getting public key")
 
         // Return the public key from wallet account
         val publicKey = walletAccount.publicKey
 
-        Log.d(TAG, "Public key retrieved for address: $address")
+        Log.d(TAG, "Public key retrieved")
         return publicKey
     }
 
@@ -232,7 +246,9 @@ class SwtcMiddleware(
     }
 
     /**
-     * Send NFT transaction with password (for native UI usage)
+     * Send NFT transaction for **native UI** (password already collected by the host).
+     * Uses [WebOrigin.WALLET_INTERNAL] instead of a blank origin so secret providers can
+     * distinguish intentional in-app access from missing DApp origin (M-18).
      */
     suspend fun sendNftTransactionWithPassword(
         address: String,
@@ -241,7 +257,7 @@ class SwtcMiddleware(
         memo: String,
         password: String
     ): String {
-        Log.d(TAG, "sendNftTransactionWithPassword NFT transfer: address=$address to=$to tokenId=$tokenId")
+        Log.d(TAG, "sendNftTransactionWithPassword NFT transfer")
 
         val accounts = accountProvider.accounts.first()
         val walletAccount =
@@ -255,7 +271,6 @@ class SwtcMiddleware(
         // Build NFT transfer transaction
         val rawTx = WalletSdk.buildSwtcNftTransfer(address, to, tokenId, memo)
         val txParams = JSONObject(rawTx)
-        Log.d(TAG, "Raw NFT transaction: $txParams")
 
         // Get sequence
         if (!txParams.has("Sequence")) {
@@ -263,14 +278,10 @@ class SwtcMiddleware(
             txParams.put("Sequence", sequence)
         }
 
-        Log.d(TAG, "NFT transaction with sequence: $txParams")
-
-        val secret = secretProvider.getSecretForAddress(address, "wallet_internal")
+        val secret = secretProvider.getSecretForAddress(address, WebOrigin.WALLET_INTERNAL)
             ?: throw IllegalStateException("Failed to get secret for address: $address")
 
         val signedTxBlob = WalletSdk.signSwtcTransaction(txParams, secret)
-
-        Log.d(TAG, "Signed NFT transaction blob length: ${signedTxBlob.length}")
 
         return nodeProvider.sendRawTransaction(signedTxBlob)
     }

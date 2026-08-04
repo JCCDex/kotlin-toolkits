@@ -7,6 +7,7 @@ import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.ChainType
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.WalletAccount
+import com.jccdex.toolkits.nft.remote.SsrfGuard
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
@@ -16,6 +17,7 @@ import okhttp3.mockwebserver.MockWebServer
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -494,8 +496,68 @@ class NftStoreTest {
         }
 
     @Test
+    fun fetchAndCacheNftMeta_ssrfGuardBlocksPrivateUrlWithoutHttp() =
+        runTest {
+            SsrfGuard.enabled = true
+            val database = newDatabase()
+            val store = NftStore(database.nftDao())
+            val server = MockWebServer()
+            server.start()
+
+            try {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(200)
+                        .setBody("""{"name":"should-not-fetch"}""")
+                )
+                // MockWebServer binds to loopback — SsrfGuard must reject before HTTP.
+                val uri = server.url("/meta.json").toString()
+                assertTrue(uri.contains("127.0.0.1") || uri.contains("localhost"))
+
+                assertNull(store.fetchAndCacheNftMeta("issuer", "blocked", uri))
+                assertEquals(0, server.requestCount)
+            } finally {
+                server.shutdown()
+                database.close()
+                SsrfGuard.enabled = true
+            }
+        }
+
+    @Test
+    fun fetchAndCacheNftMeta_doesNotFollowHttpRedirect() =
+        runTest {
+            // Allow loopback MockWebServer so we can observe redirect handling.
+            SsrfGuard.enabled = false
+            val database = newDatabase()
+            val store = NftStore(database.nftDao())
+            val server = MockWebServer()
+            server.start()
+
+            try {
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(302)
+                        .addHeader("Location", "/private.json")
+                )
+                server.enqueue(
+                    MockResponse()
+                        .setResponseCode(200)
+                        .setBody("""{"name":"should-not-follow"}""")
+                )
+                val uri = server.url("/meta.json").toString()
+                assertNull(store.fetchAndCacheNftMeta("issuer", "redir", uri))
+                assertEquals(1, server.requestCount)
+            } finally {
+                server.shutdown()
+                database.close()
+                SsrfGuard.enabled = true
+            }
+        }
+
+    @Test
     fun fetchAndCacheNftMeta_returnsNullForBlankResponseBody() =
         runTest {
+            SsrfGuard.enabled = false
             val database = newDatabase()
             val store = NftStore(database.nftDao())
             val server = MockWebServer()
@@ -509,12 +571,14 @@ class NftStoreTest {
             } finally {
                 server.shutdown()
                 database.close()
+                SsrfGuard.enabled = true
             }
         }
 
     @Test
     fun fetchAndCacheNftMeta_insertsUpdatesAndHandlesFailures() =
         runTest {
+            SsrfGuard.enabled = false
             val database = newDatabase()
             val store = NftStore(database.nftDao())
             val server = MockWebServer()
@@ -547,6 +611,7 @@ class NftStoreTest {
             } finally {
                 server.shutdown()
                 database.close()
+                SsrfGuard.enabled = true
             }
         }
 

@@ -33,8 +33,9 @@ class NftRemoteAssetResolverTest {
 
     @Test
     fun `allows public https url`() {
-        assertTrue(SsrfGuard.check("https://example.com/metadata.json"))
-        assertTrue(SsrfGuard.check("https://ipfs.io/ipfs/QmExample"))
+        // Use a public IP so the assertion does not depend on outbound DNS.
+        assertTrue(SsrfGuard.check("https://8.8.8.8/metadata.json"))
+        assertTrue(SsrfGuard.check("https://1.1.1.1/ipfs/QmExample"))
     }
 
     @Test
@@ -54,6 +55,12 @@ class NftRemoteAssetResolverTest {
     fun `rejects malformed url`() {
         assertFalse(SsrfGuard.check("not-a-url"))
         assertFalse(SsrfGuard.check(""))
+    }
+
+    @Test
+    fun `rejects unresolved host fail-closed`() {
+        // Non-resolvable hostname: DNS failure must not open the request.
+        assertFalse(SsrfGuard.check("http://this-host-should-not-resolve.invalid/metadata"))
     }
 
     @Test

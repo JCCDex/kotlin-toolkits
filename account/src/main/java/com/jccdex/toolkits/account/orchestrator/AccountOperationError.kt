@@ -9,6 +9,9 @@ sealed class AccountOperationError {
 
     data object PasswordRequired : AccountOperationError()
 
+    /** Vault already has a password; clearExisting requires the current vault password. */
+    data object PasswordRequiredForClear : AccountOperationError()
+
     data class WrongPassword(
         val message: String = "Password is wrong"
     ) : AccountOperationError()

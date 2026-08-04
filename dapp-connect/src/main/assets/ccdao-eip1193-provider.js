@@ -19,11 +19,47 @@
     }
     const state = window._ccdaoProviderState;
 
-    // 请求队列（用于处理异步响应）
-    if (!window._ccdaoRequestQueue) {
-        window._ccdaoRequestQueue = {};
-    }
+    // 请求队列留在 IIFE 闭包内（C-03）：不再挂 window，避免页面脚本伪造/劫持回调。
+    const requestQueue = {};
     let requestId = 0;
+    let nativePort = null;
+    const NATIVE_PORT_HANDSHAKE = '__CCDAO_NATIVE_PORT__';
+
+    function settleRequest(nonce, response) {
+        const callback = requestQueue[nonce];
+        if (!callback) {
+            return;
+        }
+        delete requestQueue[nonce];
+        callback(response);
+    }
+
+    function acceptNativePort(port) {
+        if (nativePort) {
+            try { nativePort.close(); } catch (_) {}
+        }
+        nativePort = port;
+        port.onmessage = function(event) {
+            let msg = event.data;
+            if (typeof msg === 'string') {
+                try { msg = JSON.parse(msg); } catch (_) { return; }
+            }
+            if (!msg || typeof msg.nonce !== 'string') {
+                return;
+            }
+            if (Object.prototype.hasOwnProperty.call(msg, 'error')) {
+                settleRequest(msg.nonce, { error: msg.error });
+            } else {
+                settleRequest(msg.nonce, { result: msg.result });
+            }
+        };
+    }
+
+    window.addEventListener('message', function(event) {
+        if (event.data === NATIVE_PORT_HANDSHAKE && event.ports && event.ports[0]) {
+            acceptNativePort(event.ports[0]);
+        }
+    });
 
     // ipfs_personalSign 的首个参数是二进制（ArrayBuffer/TypedArray），
     // 直接 JSON.stringify 会丢失（ArrayBuffer→{}），统一归一化为普通字节数组传给原生。
@@ -57,11 +93,11 @@
             });
     }
 
-    // 发送请求到 Native
+    // 发送请求到 Native（响应经 WebMessagePort 回传，不再暴露 window.ccdao.sendResponse）
     function sendToNative(method, params, callback) {
         const id = ++requestId;
         const nonce = randomUUID();
-        window._ccdaoRequestQueue[nonce] = callback;
+        requestQueue[nonce] = callback;
         params = normalizeBinaryParams(method, params);
 
         const message = JSON.stringify({
@@ -77,27 +113,10 @@
             window._tw_.postMessage(message);
         } else {
             console.error('[CCDAO EIP-1193] _tw_ not available');
-            delete window._ccdaoRequestQueue[nonce];
+            delete requestQueue[nonce];
             callback({ error: 'Bridge not available' });
         }
     }
-
-    // 响应处理函数（由 Native 调用）
-    window.ccdao = window.ccdao || {};
-    window.ccdao.sendResponse = function(nonce, result) {
-        const callback = window._ccdaoRequestQueue[nonce];
-        if (callback) {
-            delete window._ccdaoRequestQueue[nonce];
-            callback({ result: result });
-        }
-    };
-    window.ccdao.sendError = function(nonce, error) {
-        const callback = window._ccdaoRequestQueue[nonce];
-        if (callback) {
-            delete window._ccdaoRequestQueue[nonce];
-            callback({ error: error });
-        }
-    };
 
     // EIP-1193 Provider
     const provider = {
@@ -257,9 +276,8 @@
 
     // ── window.ccdao：CCDAO 专有 provider ──
     // jdid 等 DApp 通过 window.ccdao.request 调用 did_/ipfs_/swtc_/eth_ 等方法。
-    // 必须复用与 window.ethereum 相同的 sendToNative / _ccdaoRequestQueue / 事件系统：
-    // 原生统一通过 window.ccdao.sendResponse/sendError 回调，只有共用同一份请求队列
-    // 才能正确匹配（不能注入独立 store 的旧 ccdao-provider.js，否则会与 window.ethereum 互相破坏）。
+    // 必须复用与 window.ethereum 相同的 sendToNative / 闭包 requestQueue / 事件系统（C-03：
+    // 原生经 WebMessagePort 回传，不再挂 sendResponse/sendError）。
     window.ccdao = window.ccdao || {};
     window.ccdao.isCCDAO = true;
     window.ccdao.request = function(args) {

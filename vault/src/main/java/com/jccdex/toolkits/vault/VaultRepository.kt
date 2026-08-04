@@ -19,7 +19,8 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 class VaultRepository private constructor(
-    private val vaultStore: DataStore<Vault>
+    private val vaultStore: DataStore<Vault>,
+    private val authLockout: VaultAuthLockout
 ) {
     private val mutex = Mutex()
 
@@ -37,12 +38,23 @@ class VaultRepository private constructor(
     private var vaultSession: VaultSession? = null
     val isUnlocked: Boolean get() = vaultSession != null
 
+    /** Remaining auth lockout time in ms (M-01); 0 if not locked. */
+    fun authLockRemainingMs(): Long = authLockout.remainingMs()
+
+    fun isAuthLocked(): Boolean = authLockout.isLocked()
+
     fun lock() {
         vaultSession?.destroy()
         vaultSession = null
     }
 
     suspend fun unlock(password: ByteArray): Boolean {
+        try {
+            authLockout.ensureNotLocked()
+        } catch (e: VaultAuthLockedException) {
+            password.wipe()
+            throw e
+        }
         if (!hasPassword()) {
             password.wipe()
             return false
@@ -54,16 +66,12 @@ class VaultRepository private constructor(
         if (!verifyProof(key, data.password)) {
             key.wipe()
             password.wipe()
+            onAuthFailure()
             return false
         }
         vaultSession = VaultSession(key)
         password.wipe()
-        // Drop persisted derivedKey if present (C-01 / H-04): session key is memory-only.
-        if (data.derivedKey.isNotEmpty()) {
-            vaultStore.updateData { vault ->
-                vault.toBuilder().clearDerivedKey().build()
-            }
-        }
+        authLockout.recordSuccess()
         return true
     }
 
@@ -113,7 +121,7 @@ class VaultRepository private constructor(
                         serializer = VaultSerializer(app),
                         produceFile = { app.dataStoreFile("vault.pb") }
                     )
-                return VaultRepository(vs).also { instance = it }
+                return VaultRepository(vs, VaultAuthLockout.create(app)).also { instance = it }
             }
         }
     }
@@ -157,6 +165,7 @@ class VaultRepository private constructor(
             }
             lock()
             vaultSession = VaultSession(key.copyOf())
+            authLockout.recordSuccess()
         } finally {
             key.wipe()
             password.wipe()
@@ -208,6 +217,12 @@ class VaultRepository private constructor(
     suspend fun hasPassword(): Boolean = vaultStore.data.first().hasPassword()
 
     suspend fun verifyPassword(password: ByteArray): Boolean {
+        try {
+            authLockout.ensureNotLocked()
+        } catch (e: VaultAuthLockedException) {
+            password.wipe()
+            throw e
+        }
         if (!hasPassword()) {
             password.wipe()
             return false
@@ -255,7 +270,18 @@ class VaultRepository private constructor(
                 false
             }
         password.wipe()
+        if (valid) {
+            authLockout.recordSuccess()
+        } else {
+            onAuthFailure()
+        }
         return valid
+    }
+
+    private fun onAuthFailure() {
+        if (authLockout.recordFailure() && authLockout.isLocked()) {
+            throw VaultAuthLockedException(authLockout.remainingMs())
+        }
     }
 
     suspend fun importPrivateKey(
@@ -444,6 +470,19 @@ class VaultRepository private constructor(
         return getMnemonicInternal(address)
     }
 
+    /**
+     * Session-gated mnemonic read after [unlock] (H-04).
+     * For [com.jccdex.toolkits.account.orchestrator.AccountOrchestrator] HD derivation.
+     * App UI / export flows must use [getMnemonic] with an explicit password.
+     */
+    suspend fun getMnemonicUnlocked(address: String): ByteArray = getMnemonicInternal(address)
+
+    /**
+     * Session-gated private-key read after [unlock] (H-04).
+     * Prefer [getPrivateKey] with password from app code.
+     */
+    suspend fun getPrivateKeyUnlocked(address: String): ByteArray = getPrivateKeyInternal(address)
+
     suspend fun getMnemonicLanguage(address: String): String {
         if (!addressInMnemonics(address)) {
             throw IllegalArgumentException("Mnemonic is not exist")
@@ -453,7 +492,11 @@ class VaultRepository private constructor(
         return entry.lang
     }
 
-    suspend fun getMnemonicInternal(address: String): ByteArray {
+    /**
+     * Session-gated mnemonic export for in-process orchestrator use after [unlock].
+     * App code must use [getMnemonic] with an explicit password (H-04).
+     */
+    internal suspend fun getMnemonicInternal(address: String): ByteArray {
         if (!addressInMnemonics(address)) {
             throw IllegalArgumentException("Mnemonic is not exist")
         }
@@ -476,7 +519,11 @@ class VaultRepository private constructor(
             .keysList
             .any { it.address.equals(address, true) }
 
-    suspend fun getPrivateKeyInternal(address: String): ByteArray {
+    /**
+     * Session-gated private-key export for in-process orchestrator use after [unlock].
+     * App code must use [getPrivateKey] with an explicit password (H-04).
+     */
+    internal suspend fun getPrivateKeyInternal(address: String): ByteArray {
         if (!addressInKeys(address)) {
             throw IllegalArgumentException("Private key is not exist")
         }
@@ -674,12 +721,18 @@ class VaultRepository private constructor(
 
     private fun getSecretAAD(address: String): ByteArray = "secret:${address.lowercase()}".toByteArray()
 
+    /**
+     * Clears all vault data. When [password] is non-null it is verified first; on success or when
+     * null, data is wiped. **Note (H-R5):** [verifyPassword] zeroes the [password] array in place —
+     * do not reuse the same [ByteArray] afterwards (e.g. as a new vault password).
+     */
     suspend fun clearAllData(password: ByteArray? = null) =
         mutex.withLock {
             if (password != null && !verifyPassword(password)) {
                 throw IllegalArgumentException("Password is wrong")
             }
             lock()
+            authLockout.clear()
             vaultStore.updateData {
                 Vault.getDefaultInstance()
             }

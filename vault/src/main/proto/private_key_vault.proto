@@ -44,7 +44,10 @@ message Vault {
   repeated PrivateKeyEntry keys = 1;
   repeated MnemonicEntry mnemonics = 2;
   PasswordEntry password = 3;
-  string derivedKey = 4;
+  // C-01: formerly `string derivedKey = 4` (Argon2 key hex on disk). Removed; session key
+  // lives only in memory (VaultSession). Keep number/name reserved so they are never reused.
+  reserved 4;
+  reserved "derivedKey";
   repeated SecretEntry secrets = 5;
   BiometricEntry biometric = 6;
 }

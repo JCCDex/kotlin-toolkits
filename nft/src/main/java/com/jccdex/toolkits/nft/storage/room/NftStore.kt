@@ -11,6 +11,7 @@ import com.jccdex.toolkits.nft.model.Nft
 import com.jccdex.toolkits.nft.model.NftMetadataFields
 import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
 import com.jccdex.toolkits.nft.model.WalletAccount
+import com.jccdex.toolkits.nft.remote.SsrfGuard
 import com.jccdex.toolkits.nft.remote.SwtcChainNftClient
 import com.jccdex.toolkits.nft.remote.extractMetadataFields
 import com.jccdex.toolkits.nft.remote.extractMetadataImageUrl
@@ -267,9 +268,11 @@ class NftStore(
         withContext(Dispatchers.IO) {
             if (tokenUri.isBlank()) return@withContext null
             try {
-                val content = fetchJson(tokenUri) ?: return@withContext null
+                // L-R3: normalize ipfs:// (etc.) to the final HTTP URL before SsrfGuard in fetchJson.
+                val requestUri = normalizeRemoteAssetUrl(tokenUri) ?: tokenUri
+                val content = fetchJson(requestUri) ?: return@withContext null
                 val nameVal = content.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.trim().orEmpty()
-                val imageVal = extractMetadataImageUrl(content.toString(), tokenUri)
+                val imageVal = extractMetadataImageUrl(content.toString(), requestUri)
                 val entity =
                     NftMetaEntity(
                         contract = contract,
@@ -482,12 +485,13 @@ class NftStore(
 
     private suspend fun fetchJson(url: String): JsonObject? =
         withContext(Dispatchers.IO) {
+            if (!SsrfGuard.check(url)) return@withContext null
             val connection = (URL(url).openConnection() as HttpURLConnection)
             try {
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 10_000
-                connection.instanceFollowRedirects = true
+                connection.instanceFollowRedirects = false
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -500,12 +504,13 @@ class NftStore(
 
     private suspend fun fetchText(url: String): String? =
         withContext(Dispatchers.IO) {
+            if (!SsrfGuard.check(url)) return@withContext null
             val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return@withContext null
             try {
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10_000
                 connection.readTimeout = 10_000
-                connection.instanceFollowRedirects = true
+                connection.instanceFollowRedirects = false
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()

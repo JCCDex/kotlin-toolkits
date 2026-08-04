@@ -5,6 +5,9 @@
 
 (function (global) {
 
+  // Set true only for local bridge debugging. Must stay false in release assets.
+  const DEBUG = false;
+
   const jccWallet = window.jcc_wallet;
   const HDWallet = jccWallet.HDWallet;
   const jtWallet = jccWallet.jtWallet;
@@ -428,7 +431,7 @@
 
   global.PromiseBridge = {
     call: async function (method, params, id) {
-      console.log('[PromiseBridge] call:', method, 'id:', id);
+      if (DEBUG) console.log('[PromiseBridge] call:', method, 'id:', id);
       try {
         if (!method || typeof method !== 'string') {
           throw new Error('invalid method');
@@ -437,17 +440,17 @@
         if (!fn) {
           throw new Error('no such method: ' + method);
         }
-        console.log('[PromiseBridge] executing method:', method);
+        if (DEBUG) console.log('[PromiseBridge] executing method:', method);
         const result = await fn(params);
-        console.log('[PromiseBridge] method result:', method, 'success');
+        if (DEBUG) console.log('[PromiseBridge] method result:', method, 'success');
 
         if (window.JSBridge && window.JSBridge.onPromiseResult) {
           window.JSBridge.onPromiseResult(id, JSON.stringify({ result: result }));
         } else {
-          console.error('[PromiseBridge] JSBridge.onPromiseResult not available');
+          if (DEBUG) console.error('[PromiseBridge] JSBridge.onPromiseResult not available');
         }
       } catch (err) {
-        console.error('[PromiseBridge] error:', err);
+        if (DEBUG) console.error('[PromiseBridge] error:', err);
         if (window.JSBridge && window.JSBridge.onPromiseResult) {
           window.JSBridge.onPromiseResult(id, JSON.stringify({ error: (err && err.message) ? err.message : String(err) }));
         }
