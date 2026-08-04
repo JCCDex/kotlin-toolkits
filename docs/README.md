@@ -1,26 +1,32 @@
 # kotlin-toolkits 文档
 
+只保留仍需要查阅的文档。已落地的单点修复方案（C0x / H* / M* 实施说明等）已删除，状态以审计矩阵为准。
+
+## 该看什么
+
+| 场景 | 文档 |
+|------|------|
+| **安全现状 / 问题是否关闭** | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) §1.1 |
+| **还剩什么要做、怎么排期** | [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) §8 / §13 |
+| **Vault 密钥怎么工作（现状）** | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
+| **C-01 删 proto field 4（待做）** | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
+| **测试体系与覆盖边界** | [TEST_AUDIT.md](./TEST_AUDIT.md) |
+
+## 文档清单
+
 | 文档 | 说明 |
 |------|------|
-| [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) | 安全审计 + **2026-07-31 修复复审**（闭合矩阵 / R-01 / 剩余路线图） |
-| [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) | **复审残留单一方案文档**：Phase A–F 怎么修 + **§13 实施后跨仓残留与优先级** |
-| [TEST_AUDIT.md](./TEST_AUDIT.md) | 测试体系分析与审计报告（含实测） |
-| [VAULT_SESSION_REDESIGN.md](./VAULT_SESSION_REDESIGN.md) | VaultSession 重构（C-01） |
-| [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) | Vault 密钥模型：derivedKey / HMAC / AES / 解锁后内存 |
-| [H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md) | H-04 Internal 读密钥 + 会话解锁 |
-| [H_ISSUES_FIX_PLAN.md](./H_ISSUES_FIX_PLAN.md) | H 级问题修复方案汇总 |
-| [M_ISSUES_FIX_PLAN.md](./M_ISSUES_FIX_PLAN.md) | M 级问题修复方案汇总 |
-| [C02_PASSWORD_PROOF_FIX.md](./C02_PASSWORD_PROOF_FIX.md) | C-02 HMAC proof |
-| [C03_REQUEST_NONCE_FIX.md](./C03_REQUEST_NONCE_FIX.md) | C-03 请求 nonce |
-| [C04_WEBVIEW_KEY_LEAK_FIX.md](./C04_WEBVIEW_KEY_LEAK_FIX.md) | C-04 WebView 密钥短期缓解 |
-| [C05_CLEAR_WITHOUT_PASSWORD_FIX.md](./C05_CLEAR_WITHOUT_PASSWORD_FIX.md) | C-05 擦除（含兼容说明） |
-| [TEST_FIX_PLAN.md](./TEST_FIX_PLAN.md) | 测试补强计划 |
+| [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) | 安全审计报告 + 闭合矩阵（权威状态表） |
+| [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) | 复审残留实施方案；**§13 为实施后唯一维护入口** |
+| [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) | **待做：** 删除 proto `derivedKey` field 4（`reserved`） |
+| [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) | Vault：session key / HMAC proof / AES / 解锁后内存 |
+| [TEST_AUDIT.md](./TEST_AUDIT.md) | 测试体系审计（含实测基线） |
 
-## 建议阅读顺序（复审后）
+## 建议阅读顺序
 
-1. [SECURITY_AUDIT.md §1.1](./SECURITY_AUDIT.md) — 闭合状态总表  
-2. [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) — **怎么修（A–F）**；落地后看同文档 **§13** 残留与优先级  
-3. 已关闭项对照对应 `C0x` / `H_ISSUES` / `M_ISSUES` 方案文档加深理解  
+1. [SECURITY_AUDIT.md §1.1](./SECURITY_AUDIT.md) — 各 ID 当前状态  
+2. [SECURITY_REAUDIT_FIX_PLAN.md §13](./SECURITY_REAUDIT_FIX_PLAN.md) — 仍打开项与优先级  
+3. 涉及密钥时再看 [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md)
 
 ## 工程约定
 

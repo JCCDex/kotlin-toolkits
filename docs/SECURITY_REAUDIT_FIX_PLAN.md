@@ -205,7 +205,7 @@ suspend fun clearWalletData() {
 | 备份恢复覆盖 | App 层先用当前密码（或已确认的重置流程）清空，再导入 |
 | `VaultRepository.clearAllData(null)` | 可保留给「确认无密码 / 测试 / 受控迁移」；Orchestrator **不得**在有密码时走 null |
 
-旧方案 [C05_CLEAR_WITHOUT_PASSWORD_FIX.md](./C05_CLEAR_WITHOUT_PASSWORD_FIX.md) 的「可选密码兼容」导致编排层漏洞未关；**本阶段以编排层强制门控为准**。
+早期「`clearAllData` 可选密码兼容」导致编排层漏洞未关；**本阶段以编排层强制门控为准**。
 
 ### 5.3 密码语义（审核修订 — 必读）
 
@@ -358,7 +358,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | C-03 | 隐藏/移除页面可调 `sendResponse`；改 WebMessagePort | ✅ `NativeResponseChannel` + provider 闭包队列 |
 | M-01 | 失败次数锁定 / 退避 | ✅ SDK `VaultAuthLockout`（5 次 → 1/5/15 min） |
 | H-04 | `*Internal` → `internal` + 编排 API | ✅ 已落地（account friend + App 迁移） |
-| C-01 | 大版本删 proto field 4 | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
+| C-01 | 大版本删 proto field 4 | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
 | C-04 长期 / M-09 / M-16 | Native 签名、SQLCipher、pinning | 审计 §6.2 P3 |
 | （可选）nonce UUID 门禁 | 在 quote 之上评估强制 UUID；需兼容矩阵 | 本方案 §3.3 |
 
@@ -464,7 +464,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | H-R1 | Grants 无 `clear()`，钱包重置后旧 origin 授权残留 | ✅ | **✅ 已修** — 两 App `clear()` + wipe/reset/import 路径 |
 | H-R2 | `getOrigin()` 冻结为入口 URL，导航后可绕过 | ✅ | **✅ 已修** — 导航 `onPageStarted/Finished` 同步 `setOrigin`；SDK `WebOrigin.normalize` |
 | H-R3 | HTTP redirect 绕过 `SsrfGuard` | ✅ | **✅ 已修** — `instanceFollowRedirects = false` + 单测 |
-| H-R4 | 远端 `v0.2.5` 无 A–E API | ✅ | **发布流程**（本轮不做） |
+| H-R4 | 远端 `v0.2.5` 无 A–E API | ✅ | **非问题（开发期）** — 本地 `mode=local` 正常；发正式版 toolkits 后再关 local |
 | H-R5 | 同一 `ByteArray` clear+init 被 `wipe()` | ✅ | **✅ 已文档化** — Orchestrator / Vault KDoc |
 
 **H-R1（✅）** — `DappConnectGrants.clear()`；ccdao：`WalletViewModel.importHDWallet(isResetMode)` / `resetAllData` / `ImportBackupUseCase`；jdid：`PrimaryWalletRepository.persistPrimaryHdWalletDefault`。
@@ -473,7 +473,7 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 
 **H-R3（✅）** — `NftStore.fetchJson`/`fetchText`、`NftRemoteAssetResolver.fetchMetadataImage` 禁用自动 redirect；`fetchAndCacheNftMeta_doesNotFollowHttpRedirect`。
 
-**H-R4（流程，跳过）** — 先发含 A–E 的 toolkits，再关 `jccdex.toolkits.mode=local`。
+**H-R4（开发期 N/A）** — 三仓联调阶段保持 `jccdex.toolkits.mode=local`；等 toolkits 正式发布含 A–E 的版本后，再关 local 切远端。不计入安全待办。
 
 **H-R5（✅）** — `AccountOrchestrator.importHdWallet` / `VaultRepository.clearAllData` KDoc：禁止 clear 与 init 同引用。
 
@@ -515,9 +515,9 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | **后置→已做** | H-R2 + M-R4 | 规范化 origin + 导航同步 | ✅ |
 | **本轮** | M-R2 / M-R3 / M-R6 | blank origin；并发对话框；日志脱敏 | ✅ |
 | **本轮** | M-R5 / L-R1–5 | 无密码 clear；revoke UI；commit；ipfs；文档 | ✅ |
-| **流程** | H-R4 | 先发 toolkits，再关 local | **跳过（发布时再做）** |
+| **流程** | H-R4 | 发版时关 local 切远端 | **开发期 N/A（非待办）** |
 | **文档** | H-R5 | KDoc 禁止同引用 | ✅ |
-| **排期** | — | Phase F 残余（C-01 / C-04 长期 / M-09 / M-16） | 待做 |
+| **排期** | — | Phase F：C-01 见 [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md)；C-04 长期 / M-09 / M-16 | 待做 |
 | **本批** | C-03 | WebMessagePort 回传；移除 window sendResponse/Error | ✅ |
 | **本批** | M-01 | SDK 持久化失败锁定 + 两 App 展示 | ✅ |
 | **本批** | M-05 / H-04 | 拒空白 origin；`*Internal`→`internal` + `get*Unlocked` + App 迁移 | ✅ |

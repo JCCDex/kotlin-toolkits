@@ -129,7 +129,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. 每次使用时从 `password + salt + params` 重新派生密钥，用后立即 wipe。
 3. 如需性能，用 Keystore/生物识别包裹短期会话密钥，禁止持久化派生密钥。
 
-**状态：** 🟨 Phase 1 已完成（2026-07-28）。SDK 新增 `VaultSession` + `unlock()` / `lock()` / `isUnlocked`。解锁后密钥在内存；`unlock` 成功会清理磁盘上的 `derivedKey`。proto 字段仍保留以兼容迁移。详见 [`VAULT_SESSION_REDESIGN.md`](./VAULT_SESSION_REDESIGN.md)。
+**状态：** 🟨 Phase 1 已完成（2026-07-28）。SDK 新增 `VaultSession` + `unlock()` / `lock()` / `isUnlocked`。解锁后密钥在内存；`unlock` 成功会清理磁盘上的 `derivedKey`。proto 字段仍保留以兼容迁移。现状见 [`VAULT_KEY_MODEL.md`](./VAULT_KEY_MODEL.md)；**删 field 4 收口方案**见 [`C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md`](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md)。
 
 **复审（2026-07-31）：** 会话模型有效降低「落盘 derivedKey 永久可用」风险；未解锁不可解密。残余：旧 vault 在首次 unlock 前磁盘上仍可能有 derivedKey；进程内解锁后仍可读全部密钥。
 
@@ -151,7 +151,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. 禁止存储可逆加密的密码副本。
 3. 现有 vault 升级时迁移 proof 格式。
 
-**修复方案：** 详见 [`C02_PASSWORD_PROOF_FIX.md`](./C02_PASSWORD_PROOF_FIX.md)。核心思路：用 `HMAC-SHA256(derivedKey, domain_separator)` 替代 AES-GCM 加密密码。proof 不再包含密码原文，只能验证不能恢复。旧格式 vault 在 changePassword 时自动迁移。
+**修复方案：** 用 `HMAC-SHA256(derivedKey, domain_separator)` 替代 AES-GCM 加密密码。proof 不再包含密码原文，只能验证不能恢复。旧格式 vault 在 changePassword 时自动迁移。模型说明见 [`VAULT_KEY_MODEL.md`](./VAULT_KEY_MODEL.md)。
 
 > C-02 是对 C-01 的防御性加固：C-01 解决 derivedKey 落盘后，proof 的敏感度已大幅降低；C-02 确保即使 derivedKey 在进程内泄漏，proof 也不会暴露明文密码。
 
@@ -174,7 +174,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. 请求 ID 使用 `crypto.randomUUID()`。
 3. 响应与 native 侧生成的 nonce 绑定，拒绝重复完成。
 
-**修复方案：** 详见 [`C03_REQUEST_NONCE_FIX.md`](./C03_REQUEST_NONCE_FIX.md)。核心思路：每个请求生成 `crypto.randomUUID()` nonce，回调队列 key 从猜得到的 `id` 改为不可猜的 `nonce`，native 响应时回传 nonce。约 30 行改动，JS + Native 各一处。
+**修复方案：** 请求侧用不可猜 `nonce`；最终以 `NativeResponseChannel`（WebMessagePort）单向回传，页面不再暴露 `sendResponse`/`sendError`。
 
 **复审（2026-07-31）：** 🟨 部分修复。单调 `id` 猜测已缓解；**`window.ccdao.sendResponse` / `sendError` 仍暴露在页面**。另见 **R-01**（响应侧 `nonce` 未转义）。
 
@@ -200,7 +200,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. **短期：** WebView 独立进程、禁用调试、生产环境移除 console 转发与 bridge JS 中的 debug log。
 3. 传参使用句柄/引用，避免原始密钥字符串。
 
-**修复方案：** 详见 [`C04_WEBVIEW_KEY_LEAK_FIX.md`](./C04_WEBVIEW_KEY_LEAK_FIX.md)。短期：console 转发加守卫、清理 bridge JS debug log、release 脱敏日志、WebView 设置加固。长期签名迁移属架构重构，不在本次范围。
+**修复方案：** 短期：console 转发加守卫、清理 bridge JS debug log、release 脱敏日志、WebView 设置加固。长期 Native 签名属架构重构，见 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) Phase F。
 
 **复审（2026-07-31）：** 🟨 短期部分落地（`allowFileAccess=false`、asset 导航白名单、部分 console 关闭）。密钥仍经 JS 签名；`wallet-bridge.js` 仍可能残留 debug log。长期 Native 签名未做。
 
@@ -222,7 +222,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. 配合显式用户确认 UI（如二次确认「输入 DELETE」）。
 3. 审计所有 `clearAllData` 调用点。
 
-**修复方案：** 详见 [`C05_CLEAR_WITHOUT_PASSWORD_FIX.md`](./C05_CLEAR_WITHOUT_PASSWORD_FIX.md)。`clearAllData` / `importHdWallet(clearExisting=true)` / `clearWalletData` 增加可选 `password` 参数——空参数向后兼容，传参则先验密码再执行。
+**修复方案：** 编排层强制密码门控：`clearWalletData` / `importHdWallet(clearExisting=true)` 在有密码 vault 上必须先验当前密码再擦除。细则见 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) Phase C。
 
 **复审（2026-07-31）：** 📌/❌ **编排层未关闭。** `VaultRepository.clearAllData(password?)` 仅在传入密码时门控；`AccountOrchestrator` 的 `clearExisting` 与 `clearWalletData()` 仍调用无参 `clearAllData()`，任意调用方可无密码擦除。若生产坚持兼容，须审计并限制所有 call site。
 
@@ -230,7 +230,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 ### 3.2 High（高危）
 
-> 全部 H 级问题修复方案合并在一份文档中：**[`H_ISSUES_FIX_PLAN.md`](./H_ISSUES_FIX_PLAN.md)**（H-01 到 H-07）
+> H 级条目状态以 §1.1 矩阵为准；残留实施见 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)。
 
 #### H-01：`CachingSecretProvider` 缓存键未包含 origin
 
@@ -290,7 +290,9 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 **修复建议：** 改为 `internal` 或要求 `VaultSession` 令牌；解密路径统一要求认证。
 
-**复审（2026-07-31）：** 🟨 解密依赖已解锁会话（`derivedKey()` 在锁定时失败）。`*Internal` 仍为 public，进程内任意代码在 unlock 后仍可调用。详见 [`H04_VAULT_INTERNAL_SESSION_FIX.md`](./H04_VAULT_INTERNAL_SESSION_FIX.md)。
+**复审（2026-07-31）：** 🟨 解密依赖已解锁会话（`derivedKey()` 在锁定时失败）。`*Internal` 仍为 public，进程内任意代码在 unlock 后仍可调用。
+
+**实施更新：** ✅ `*Internal` 已收为 `internal`；App 经解锁会话 API 访问。模型见 [`VAULT_KEY_MODEL.md`](./VAULT_KEY_MODEL.md)。
 
 ---
 
@@ -363,7 +365,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 ---
 ### 3.3 Medium（中危）
 
-> 全部 M 级问题修复方案合并在一份文档中：**[`M_ISSUES_FIX_PLAN.md`](./M_ISSUES_FIX_PLAN.md)**（M-01 到 M-18）
+> M 级条目状态以 §1.1 矩阵为准；残留实施见 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)。
 
 | ID | 问题 | 位置 | 修复要点 | 复审 |
 |----|------|------|----------|------|
@@ -574,9 +576,10 @@ nft/
 
 ### 7.3 相关文档
 
+- [README.md](./README.md) — 文档索引
+- [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) — 残留实施与 §13 优先级
+- [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) — Vault 密钥模型（现状）
 - [TEST_AUDIT.md](./TEST_AUDIT.md) — 测试体系审计
-- [C02_PASSWORD_PROOF_FIX.md](./C02_PASSWORD_PROOF_FIX.md) 等 C/H/M 修复方案（见 [README.md](./README.md)）
-- [VAULT_SESSION_REDESIGN.md](./VAULT_SESSION_REDESIGN.md) / [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md)
 
 ### 7.4 新增模块简评（复审附带）
 
@@ -591,6 +594,7 @@ nft/
 | 1.2 | 2026-07-28～31 | 各修复方案文档与 SECURITY 状态备注陆续补充 |
 | **1.3** | **2026-07-31** | **PR `#16` 修复复审：闭合矩阵、R-01、剩余路线图** |
 | 1.4 | 2026-08-03 | 增加 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) 残留实施细则链接 |
+| 1.5 | 2026-08-04 | 文档精简：删除已落地单点修复方案，链接改指向现状/残留文档 |
 
 ---
 

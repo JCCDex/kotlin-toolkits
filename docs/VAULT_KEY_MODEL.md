@@ -1,6 +1,6 @@
 # Vault 密钥模型说明（现状）
 
-**关联：** [VAULT_SESSION_REDESIGN.md](./VAULT_SESSION_REDESIGN.md)（C-01）、[C02_PASSWORD_PROOF_FIX.md](./C02_PASSWORD_PROOF_FIX.md)、[H04_VAULT_INTERNAL_SESSION_FIX.md](./H04_VAULT_INTERNAL_SESSION_FIX.md)  
+**关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md)（C-01 / C-02 / H-04）、[SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)  
 **日期：** 2026-07-31  
 **目的：** 澄清 `derivedKey`、HMAC proof、AES 加密、解锁后内存里到底有什么、派生子钱包为何「免密」——避免把「磁盘字段 / 私有方法 / 会话密钥 / 明文私钥 / HD 派生」混为一谈。
 
