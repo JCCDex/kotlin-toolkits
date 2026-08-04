@@ -9,7 +9,7 @@
 | **安全现状 / 问题是否关闭** | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) §1.1 |
 | **还剩什么要做、怎么排期** | [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) §8 / §13 |
 | **Vault 密钥怎么工作（现状）** | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
-| **C-01 删 proto field 4（待做）** | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
+| **C-01 删 proto field 4（已落地）** | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
 | **测试体系与覆盖边界** | [TEST_AUDIT.md](./TEST_AUDIT.md) |
 
 ## 文档清单
@@ -18,7 +18,7 @@
 |------|------|
 | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) | 安全审计报告 + 闭合矩阵（权威状态表） |
 | [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) | 复审残留实施方案；**§13 为实施后唯一维护入口** |
-| [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) | **待做：** 删除 proto `derivedKey` field 4（`reserved`） |
+| [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) | ✅ 已落地：删除 proto `derivedKey` field 4（`reserved`） |
 | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) | Vault：session key / HMAC proof / AES / 解锁后内存 |
 | [TEST_AUDIT.md](./TEST_AUDIT.md) | 测试体系审计（含实测基线） |
 

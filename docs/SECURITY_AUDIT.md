@@ -30,13 +30,13 @@ kotlin-toolkits 是一套面向 Android 的钱包/DID/NFT 工具库，涉及助�
 ### 1.1 修复复审结论（2026-07-31）
 
 PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多项修复（VaultSession、HMAC proof、nonce、origin 缓存、VC 验签、编排锁与私钥不出模型等），但复审时 **未完全收口**。  
-**实施更新（2026-08-03，`SECURITY_REAUDIT_FIX_PLAN` Phase A–E）：** R-01/H-03、H-02、C-05、H-06、H-07、M-06 已落地。残余见 C-03 / C-04 长期 / Phase F。
+**实施更新（2026-08-03，`SECURITY_REAUDIT_FIX_PLAN` Phase A–E）：** R-01/H-03、H-02、C-05、H-06、H-07、M-06 已落地。**2026-08-04：** C-01 field 4 `reserved` 已收口。残余见 C-04 长期 / Phase F（M-09 / M-16）。
 
 **复审状态图例：** ✅ 已关闭 · 🟨 部分修复 · ❌ 未关闭 / 新发现 · 📌 有意兼容残留
 
 | ID | 复审状态 | 说明 |
 |----|----------|------|
-| C-01 | 🟨 | VaultSession + unlock；磁盘 `derivedKey` 仍保留至首次 unlock 迁移 |
+| C-01 | ✅ | VaultSession + unlock；proto field 4 已 `reserved`，无磁盘 `derivedKey` |
 | C-02 | ✅ | HMAC proof；校验路径重跑 Argon2 |
 | C-03 | ✅ | WebMessagePort 回传；不再暴露 `window.ccdao.sendResponse`/`sendError` |
 | C-04 | 🟨 | 导航/文件访问收紧、部分日志关闭；密钥仍进 JS（长期项） |
@@ -129,9 +129,11 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 2. 每次使用时从 `password + salt + params` 重新派生密钥，用后立即 wipe。
 3. 如需性能，用 Keystore/生物识别包裹短期会话密钥，禁止持久化派生密钥。
 
-**状态：** 🟨 Phase 1 已完成（2026-07-28）。SDK 新增 `VaultSession` + `unlock()` / `lock()` / `isUnlocked`。解锁后密钥在内存；`unlock` 成功会清理磁盘上的 `derivedKey`。proto 字段仍保留以兼容迁移。现状见 [`VAULT_KEY_MODEL.md`](./VAULT_KEY_MODEL.md)；**删 field 4 收口方案**见 [`C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md`](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md)。
+**状态：** ✅ 已收口（2026-08-04）。`VaultSession` + `unlock()` / `lock()` / `isUnlocked`；加解密仅用内存 session。proto field 4 已 `reserved 4` / `reserved "derivedKey"`，不再持久化。详见 [`VAULT_KEY_MODEL.md`](./VAULT_KEY_MODEL.md)、[`C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md`](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md)。
 
-**复审（2026-07-31）：** 会话模型有效降低「落盘 derivedKey 永久可用」风险；未解锁不可解密。残余：旧 vault 在首次 unlock 前磁盘上仍可能有 derivedKey；进程内解锁后仍可读全部密钥。
+**复审（2026-07-31）：** 会话模型有效降低「落盘 derivedKey 永久可用」风险；未解锁不可解密。
+
+**实施更新（2026-08-04）：** ✅ 删除 proto `derivedKey` 字段定义并 `reserved`；移除 `unlock` 内 `clearDerivedKey` 迁移。
 
 ---
 
@@ -484,7 +486,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 
 | 序号 | 行动项 | 关联发现 | 复审 |
 |------|--------|----------|------|
-| 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 | 🟨 Session |
+| 1 | 移除 `derivedKey` 持久化；每次从密码派生 | C-01 | ✅ Session + field 4 reserved |
 | 2 | 密码 proof 改为不可逆验证；迁移现有 vault | C-02 | ✅ |
 | 3 | 所有 wipe/clear 路径强制 `verifyPassword` | C-05 | ✅ Orchestrator |
 | 4 | 限制 `getMnemonicInternal` / `getPrivateKeyInternal` 访问 | H-04 | ✅ |
@@ -516,7 +518,7 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 |------|--------|----------|------|
 | 16 | 签名逻辑迁出 WebView（Native / Keystore） | C-04 | ❌ |
 | 17 | Room 数据库加密（SQLCipher） | M-09 | ❌ |
-| 18 | 统一 `VaultSession` 认证模型 | H-04, C-01 | 🟨 |
+| 18 | 统一 `VaultSession` 认证模型 | H-04, C-01 | ✅ |
 | 19 | RPC TLS 证书固定 | M-16 | ❌ |
 
 ---
@@ -595,6 +597,7 @@ nft/
 | **1.3** | **2026-07-31** | **PR `#16` 修复复审：闭合矩阵、R-01、剩余路线图** |
 | 1.4 | 2026-08-03 | 增加 [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) 残留实施细则链接 |
 | 1.5 | 2026-08-04 | 文档精简：删除已落地单点修复方案，链接改指向现状/残留文档 |
+| 1.6 | 2026-08-04 | C-01 收口：proto field 4 `reserved`；移除 `clearDerivedKey` 迁移 |
 
 ---
 

@@ -1,7 +1,7 @@
 # Vault 密钥模型说明（现状）
 
-**关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md)（C-01 / C-02 / H-04）、[SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)  
-**日期：** 2026-07-31  
+**关联：** [SECURITY_AUDIT.md](./SECURITY_AUDIT.md)（C-01 / C-02 / H-04）、[SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md)、[C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md)  
+**日期：** 2026-08-04  
 **目的：** 澄清 `derivedKey`、HMAC proof、AES 加密、解锁后内存里到底有什么、派生子钱包为何「免密」——避免把「磁盘字段 / 私有方法 / 会话密钥 / 明文私钥 / HD 派生」混为一谈。
 
 ---
@@ -18,7 +18,7 @@
 
 - **解锁后常驻内存的是 session key（包装密钥）**，不是整库明文私钥。
 - **私钥 / 助记词默认仍以 AES 密文存在 `vault.pb`**；用到时再临时解密。
-- **proto 字段 `Vault.derivedKey` 已不再参与加解密**；旧数据首次 `unlock` 后会被清空。
+- **proto 已无 `Vault.derivedKey` 字段**（field 4 `reserved`）；加解密只经内存 session。
 
 ---
 
@@ -26,11 +26,11 @@
 
 | 名字 | 是什么 | 现在还用吗 |
 |------|--------|------------|
-| **proto** `Vault.derivedKey`（field 4） | 旧版把 Argon2 密钥以 hex **写进磁盘** | **业务上不用了**。仅兼容旧文件；`unlock` 发现非空则 `clearDerivedKey()` |
+| **proto** `Vault.derivedKey`（field 4） | 旧版把 Argon2 密钥以 hex **写进磁盘** | **已删除**。`reserved 4` / `reserved "derivedKey"`，禁止复用 |
 | **私有方法** `VaultRepository.derivedKey()` | 从 `VaultSession` 取 AES key 副本；未解锁则 `error("Vault is locked")` | **还在用**。所有加解密路径都经它取 session key |
 | **`VaultSession.derivedKey()`** | session 内 key 的 `copyOf()` | **还在用**（给上面私有方法调用） |
 
-私有方法本质是 **session AES key 访问器 + 锁定守卫**，名字沿用旧叫法，易与 proto 字段混淆。后续可改名为 `sessionKey()` / `requireSessionKey()`，行为不变。
+私有方法本质是 **session AES key 访问器 + 锁定守卫**，名字沿用旧叫法，易与已删除的 proto 字段混淆。后续可改名为 `sessionKey()` / `requireSessionKey()`，行为不变。
 
 ---
 
@@ -105,35 +105,34 @@ getPrivateKey / getPrivateKeyInternal
 
 ---
 
-## 6. 旧版用户升级到新版
+## 6. 旧测试包 / 升级说明
 
-1. **刚装上新版**：磁盘上可能仍有旧 `derivedKey` hex，但代码**不再用它解密**。
-2. **第一次成功 `unlock(password)`**：用同一套 salt/params 从密码重新 Argon2 派生 → 写入 `VaultSession`（与当年写入磁盘的是同一把逻辑密钥）。
-3. **解锁成功后**：若 proto `derivedKey` 非空 → `clearDerivedKey()`。
-4. **之后**：与新装用户一样，field 4 保持为空。
+1. **解密从不读磁盘 field 4**：`unlock` 用密码 + salt 重新 Argon2 → `VaultSession`。  
+2. **Schema**：field 4 已 `reserved`；API 无 `getDerivedKey`。极旧 blob 里若仍有 wire field 4，会变成 unknown（javalite 默认保留）；不参与加解密。外层仍有 Tink。  
+3. **清残留（可选）**：升级前用仍含 `clearDerivedKey` 的旧 build 解锁一次；或清应用数据；或日后对 `VaultSerializer` 使用 `DiscardUnknownFieldsParser`（见 C-01 方案 §3.2）。
 
-结论：**旧用户升级不依赖磁盘 `derivedKey` 才能读钱包**；依赖密码重新派生。磁盘字段在首次解锁前只是残留（仍有一定安全暴露面），解锁后清除。
+结论：**读钱包只依赖密码重新派生**，不依赖磁盘 `derivedKey`。
 
 ---
 
-## 7. proto field 4 还要不要留
+## 7. proto field 4（已收口）
 
 ```protobuf
 message Vault {
   repeated PrivateKeyEntry keys = 1;
   repeated MnemonicEntry mnemonics = 2;
   PasswordEntry password = 3;
-  string derivedKey = 4;   // deprecated：不再读写业务含义
+  reserved 4;
+  reserved "derivedKey";
   repeated SecretEntry secrets = 5;
   BiometricEntry biometric = 6;
 }
 ```
 
-| 方案 | 建议 |
-|------|------|
-| **当前大版本** | **保留 field 4 编号**，不写、unlock 时清空。保证旧 `vault.pb` 可解析 |
-| **下个破坏性大版本** | 可从 schema 删除 field 4（需评估已发布安装的迁移窗口） |
-| **私有方法** | 保留逻辑；建议改名以消除歧义 |
+| 项 | 状态 |
+|----|------|
+| field 4 | ✅ `reserved`，禁止复用编号与字段名 |
+| 私有方法 `derivedKey()` | 保留；建议日后改名消除歧义 |
 
 ---
 
@@ -141,7 +140,7 @@ message Vault {
 
 | 议题 | 文档 / 编号 | 落地结果 |
 |------|-------------|----------|
-| 派生密钥落盘 | C-01 / VaultSession | 密钥只进内存 session |
+| 派生密钥落盘 | C-01 / VaultSession | 密钥只进内存 session；field 4 reserved |
 | 磁盘 key 回退 + App 解锁 | H-04 | `derivedKey()` 仅读 session；ccdao/jdid 冷启动 unlock |
 | 密码 proof 可还原 | C-02 | 新 proof 用 HMAC-SHA256 |
 | 会话内存模型与 HD 派生 | 本文 §4–§5 | 常驻 session key；派生时临时解密助记词 |
@@ -152,7 +151,7 @@ message Vault {
 
 | 组件 | 角色 | 当前状态 |
 |------|------|----------|
-| proto `Vault.derivedKey` | 旧版磁盘持久化密钥 | 废弃；仅兼容读取，`unlock` 后清空 |
+| proto field 4 | 旧版磁盘持久化密钥 | ✅ `reserved`；schema 无此字段 |
 | `VaultRepository.derivedKey()` | 取 session AES key | 使用中（建议日后改名） |
 | `VaultSession` | 进程内包装密钥 | 使用中；`lock` / 进程退出即销毁 |
 | Password proof | 校验密码 | 新格式 HMAC-SHA256；旧 AES proof 可读并可迁移 |

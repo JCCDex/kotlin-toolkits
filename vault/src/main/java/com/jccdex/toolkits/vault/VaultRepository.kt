@@ -72,12 +72,6 @@ class VaultRepository private constructor(
         vaultSession = VaultSession(key)
         password.wipe()
         authLockout.recordSuccess()
-        // Drop persisted derivedKey if present (C-01 / H-04): session key is memory-only.
-        if (data.derivedKey.isNotEmpty()) {
-            vaultStore.updateData { vault ->
-                vault.toBuilder().clearDerivedKey().build()
-            }
-        }
         return true
     }
 
