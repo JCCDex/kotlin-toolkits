@@ -5,7 +5,7 @@
 **状态：** ✅ Phase A–E 已实施；C-01 / C-03 / M-01 / H-04 已落地；Phase F 残余 **C-04 长期 / M-09 / M-16 暂缓**（§8.1）  
 **日期：** 2026-08-03  
 
-**本文结构：** §1–2 目标与阶段 → §3–8 Phase A–F → §9–11 跨仓顺序 / 测试 / 矩阵 → §12 审核纪要 → **§13 实施后残留（唯一维护入口）** → §14 修订记录。
+**本文结构：** §1–2 目标与阶段 → §3–8 Phase A–F → §9–11 跨仓顺序 / 测试 / 矩阵 → §12 审核纪要 → **§13 实施后残留（唯一维护入口）** → §14 当前做了什么 / 修复了什么 → §15 修订记录。
 
 **仓库约定：**
 
@@ -541,7 +541,21 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 
 ---
 
-## 14. 修订记录
+## 14. 当前做了什么 / 修复了什么（精简）
+
+当前这轮收口的主要改动摘要（详情见上文 Phase A–F / §13）：
+
+- **DApp 安全链路**：统一 `WebOrigin` 规范化，拒绝空/不安全 origin；`sendTransaction` 等高风险路径强制传 origin。
+- **响应通道加固**：页面侧回调从 `window` 全局函数迁到 `WebMessagePort`（`NativeResponseChannel`），并补齐回调参数 quote 防注入。
+- **Vault 强化**：新增失败锁定（`VaultAuthLockout`）；C-01 落地为 proto `derivedKey` field 4 `reserved`（不再保留该字段定义）。
+- **清理门控与网络防护**：Orchestrator 擦除路径补密码门控；NFT 拉取路径收紧 SSRF 保护与相关测试。
+- **文档与测试收口**：删除已过时单点修复文档，状态统一维护在本文件 + `SECURITY_AUDIT.md`，并补充 C-03/M-01 等回归测试。
+
+仍暂缓：C-04 长期（Native 签名）、M-09（Room SQLCipher）、M-16（证书 pinning）— 原因见 §8.1。
+
+---
+
+## 15. 修订记录
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
@@ -563,3 +577,4 @@ private suspend fun fetchJson(url: String): JsonObject? = withContext(Dispatcher
 | 1.15 | 2026-08-03 | C-03：NativeResponseChannel（WebMessagePort）+ 移除 window sendResponse |
 | 1.16 | 2026-08-04 | §1.2 非目标回写：C-01 / C-03 / H-04 已落地；仅 C-04 长期 / M-09 / M-16 仍待做 |
 | 1.17 | 2026-08-04 | §8.1：写明 C-04 / M-09 / M-16 **暂缓原因**（架构/工程/运维），非遗忘 |
+| 1.18 | 2026-08-04 | §14：补充“当前做了什么 / 修复了什么”精简摘要 |

@@ -8,6 +8,7 @@
 |------|------|
 | **安全现状 / 问题是否关闭** | [SECURITY_AUDIT.md](./SECURITY_AUDIT.md) §1.1 |
 | **还剩什么要做、怎么排期** | [SECURITY_REAUDIT_FIX_PLAN.md](./SECURITY_REAUDIT_FIX_PLAN.md) §8 / §13 |
+| **当前做了什么 / 修复了什么** | [SECURITY_REAUDIT_FIX_PLAN.md §14](./SECURITY_REAUDIT_FIX_PLAN.md) |
 | **为何 C-04 / M-09 / M-16 暂缓** | [SECURITY_REAUDIT_FIX_PLAN.md §8.1](./SECURITY_REAUDIT_FIX_PLAN.md) |
 | **Vault 密钥怎么工作（现状）** | [VAULT_KEY_MODEL.md](./VAULT_KEY_MODEL.md) |
 | **C-01 删 proto field 4（已落地）** | [C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md](./C01_REMOVE_DERIVED_KEY_FIELD_PLAN.md) |
