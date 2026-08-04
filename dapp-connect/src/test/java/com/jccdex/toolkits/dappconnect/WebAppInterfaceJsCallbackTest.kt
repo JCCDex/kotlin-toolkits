@@ -8,6 +8,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
+/**
+ * Legacy evaluateJavascript callback escaping tests (pre–C-03).
+ * Production delivery uses [NativeResponseChannel]; these remain to lock quote behavior
+ * of the unused [WebAppInterfaceWithWebView.jsCallback] helper.
+ */
 @RunWith(RobolectricTestRunner::class)
 class WebAppInterfaceJsCallbackTest {
 
