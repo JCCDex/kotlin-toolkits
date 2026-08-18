@@ -192,6 +192,42 @@ object WalletSdk {
             }
         )
 
+    suspend fun buildSwtcCreateOrder(
+        address: String,
+        amount: String,
+        base: String,
+        counter: String,
+        sum: String,
+        type: String,
+        platform: String? = null,
+        issuer: String? = null
+    ): String =
+        callJsMethod(
+            "buildSwtcCreateOrder",
+            JSONObject().apply {
+                put("address", address)
+                put("amount", amount)
+                put("base", base)
+                put("counter", counter)
+                put("sum", sum)
+                put("type", type)
+                platform?.let { put("platform", it) }
+                issuer?.let { put("issuer", it) }
+            }
+        )
+
+    suspend fun buildSwtcCancelOrder(
+        address: String,
+        sequence: Long
+    ): String =
+        callJsMethod(
+            "buildSwtcCancelOrder",
+            JSONObject().apply {
+                put("address", address)
+                put("sequence", sequence)
+            }
+        )
+
     suspend fun signSwtcTransaction(
         tx: JSONObject,
         secret: String

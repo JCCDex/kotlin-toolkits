@@ -36,5 +36,6 @@ interface ISwtcMiddleware {
     suspend fun multiSign(msParams: JSONObject, origin: String): Any
     suspend fun signMessage(from: String, data: String, origin: String): String
     suspend fun getPublicKey(address: String, origin: String): String
+    suspend fun batchTransactions(batchReq: JSONObject, origin: String): JSONArray
     fun setRequestAccountsCallback(callback: RequestAccountsCallback?)
 }

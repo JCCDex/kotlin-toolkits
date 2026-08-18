@@ -9,6 +9,7 @@ import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
@@ -100,7 +101,7 @@ class SwtcMiddleware(
             ?: throw IllegalStateException("Failed to get secret for address: $account")
 
         // Sign transaction using WalletSdk
-        val blob = WalletSdk.signSwtcTransaction(txParams, secret)
+        val blob = WalletSdk.signTransaction(txParams, secret)
 
         // Submit to blockchain
         return nodeProvider.sendRawTransaction(blob)
@@ -240,7 +241,7 @@ class SwtcMiddleware(
         val secret = secretProvider.getSecretForAddress(account, origin)
             ?: throw IllegalStateException("Failed to get secret for address: $account")
 
-        val blob = WalletSdk.signSwtcTransaction(txParams, secret)
+        val blob = WalletSdk.signTransaction(txParams, secret)
 
         return nodeProvider.sendRawTransaction(blob)
     }
@@ -281,8 +282,81 @@ class SwtcMiddleware(
         val secret = secretProvider.getSecretForAddress(address, WebOrigin.WALLET_INTERNAL)
             ?: throw IllegalStateException("Failed to get secret for address: $address")
 
-        val signedTxBlob = WalletSdk.signSwtcTransaction(txParams, secret)
+        val signedTxBlob = WalletSdk.signTransaction(txParams, secret)
 
         return nodeProvider.sendRawTransaction(signedTxBlob)
     }
+
+    /**
+     * 批量交易（dapp RPC：swtc_batchTransactions），对齐浏览器插件 send/return 语义。
+     * - send：逐笔签名 + 广播，单笔失败不中断，返回 [{hash}, {error}, ...]
+     * - return：只签名返回 blob 数组，不广播
+     * 注意：本实现为 dapp-connect 库**唯一实现**（ccdao / jdid 等宿主共用）；
+     * ccdao 的 SdkSwtcAdapter → app SwtcMiddleware 委托本类；jdid 等宿主直接装配本类。
+     */
+    override suspend fun batchTransactions(
+        batchReq: JSONObject,
+        origin: String
+    ): JSONArray {
+        Log.d(TAG, "batchTransactions from origin: $origin")
+
+        val from = batchReq.getString("from")
+        val mode = batchReq.optString("mode", "send")
+        if (mode != "send" && mode != "return") {
+            throw IllegalArgumentException("Unsupported batch mode: $mode")
+        }
+        val transfers = SwtcBatchTransactions.parseTransfers(batchReq.optJSONArray("transfers"))
+        val createOrders = SwtcBatchTransactions.parseCreateOrders(batchReq.optJSONArray("createOrders"))
+        val cancelOrders = SwtcBatchTransactions.parseCancelOrders(batchReq.optJSONArray("cancelOrders"))
+
+        if (transfers.isEmpty() && createOrders.isEmpty() && cancelOrders.isEmpty()) {
+            throw IllegalArgumentException(
+                "At least one of transfers, createOrders, or cancelOrders must be non-empty"
+            )
+        }
+
+        val accounts = accountProvider.accounts.first()
+        val walletAccount =
+            accounts.find { it.address == from }
+                ?: throw IllegalArgumentException("Account not found in wallet: $from")
+        if (walletAccount.chain.bip44Code != ChainType.SWTC.bip44Code) {
+            throw IllegalArgumentException("Account is not a SWTC account: $from")
+        }
+
+        // 语义校验（对齐 app 层：金额 / currency-issuer / 地址 / type）
+        transfers.forEach { if (!SwtcBatchTransactions.isValidTransfer(it)) throw IllegalArgumentException("Invalid batch transfers") }
+        createOrders.forEach { if (!SwtcBatchTransactions.isValidCreateOrder(it)) throw IllegalArgumentException("Invalid batch createOrders") }
+        cancelOrders.forEach { if (it.sequence < 0) throw IllegalArgumentException("Invalid batch cancelOrders") }
+
+        val secret = secretProvider.getSecretForAddress(from, origin)
+            ?: throw IllegalStateException("Failed to get secret for address: $from")
+
+        val txs = SwtcBatchTransactions.buildTxs(from, transfers, createOrders, cancelOrders)
+
+        val results = JSONArray()
+        if (mode == "return") {
+            val startSeq = nodeProvider.fetchSequence(from)
+            txs.forEachIndexed { index, tx ->
+                tx.put("Sequence", startSeq + index)
+                results.put(WalletSdk.signTransaction(tx, secret))
+            }
+        } else {
+            var currentSeq = nodeProvider.fetchSequence(from)
+            for (tx in txs) {
+                delay(200)
+                tx.put("Sequence", currentSeq)
+                try {
+                    val blob = WalletSdk.signTransaction(tx, secret)
+                    val hash = nodeProvider.sendRawTransaction(blob)
+                    results.put(JSONObject().apply { put("hash", hash) })
+                    currentSeq++
+                } catch (e: Exception) {
+                    results.put(JSONObject().apply { put("error", e.message ?: "failed") })
+                    currentSeq = nodeProvider.fetchSequence(from)
+                }
+            }
+        }
+        return results
+    }
+
 }
