@@ -11,6 +11,7 @@ enum class DAppMethod {
     SWTC_MULTISIGN,
     SWTC_SIGNMESSAGE,
     SWTC_GETPUBLICKEY,
+    SWTC_BATCHTRANSACTIONS,
     SWTC_REQUESTNFTS,
 
     // ETH methods (EIP-1193)
@@ -57,6 +58,7 @@ enum class DAppMethod {
                 "swtc_multiSign" -> SWTC_MULTISIGN
                 "swtc_signMessage" -> SWTC_SIGNMESSAGE
                 "swtc_getPublicKey" -> SWTC_GETPUBLICKEY
+                "swtc_batchTransactions" -> SWTC_BATCHTRANSACTIONS
                 "swtc_requestNfts" -> SWTC_REQUESTNFTS
 
                 // ETH methods

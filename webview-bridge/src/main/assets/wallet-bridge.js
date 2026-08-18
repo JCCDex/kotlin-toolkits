@@ -15,6 +15,8 @@
   const jingtumLib = window.jingtum_lib;
   const serializePayment = jingtumLib.serializePayment;
   const serialize721Payment = jingtumLib.serialize721Payment;
+  const serializeCreateOrder = jingtumLib.serializeCreateOrder;
+  const serializeCancelOrder = jingtumLib.serializeCancelOrder;
   const BIP44Chain = jccWallet.BIP44Chain;
   const ethSigUtil = window.ethSigUtil;
   const { hexToBytes, bytesToHex, prepareTransaction } = window.ethereumjsTx;
@@ -255,6 +257,29 @@
     buildSwtcNftTransfer(params) {
       const { address, to, tokenId, memo } = params;
       const tx = serialize721Payment(address, to, tokenId, wallet.getFee(), memo);
+      return tx;
+    },
+
+    buildSwtcCreateOrder(params) {
+      const { address, amount, base, counter, sum, type, platform, issuer } = params;
+      const tx = serializeCreateOrder(
+        address,
+        amount,
+        base === "SWTC" ? "SWT" : base,
+        counter === "SWTC" ? "SWT" : counter,
+        sum,
+        type,
+        platform,
+        wallet.getCurrency(),
+        wallet.getFee(),
+        issuer || wallet.getIssuer()
+      );
+      return tx;
+    },
+
+    buildSwtcCancelOrder(params) {
+      const { address, sequence } = params;
+      const tx = serializeCancelOrder(address, sequence, wallet.getFee());
       return tx;
     },
     signSwtcTransaction(params) {

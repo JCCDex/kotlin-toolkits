@@ -161,6 +161,16 @@ open class WebAppInterface(
                 }
             }
 
+            DAppMethod.SWTC_BATCHTRANSACTIONS -> {
+                val params = obj.optJSONArray("params")
+                if (params != null && params.length() > 0) {
+                    val batchReq = params.getJSONObject(0)
+                    handleSwtcBatchTransactions(network, nonce, batchReq)
+                } else {
+                    sendErrorResponse(network, nonce, "Missing batch transaction parameters")
+                }
+            }
+
             // ETH RPC Methods
             DAppMethod.ETH_REQUESTACCOUNTS,
             DAppMethod.ETH_ACCOUNTS -> {
@@ -379,6 +389,18 @@ open class WebAppInterface(
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swtc_getPublicKey", e)
                 sendErrorResponse(network, nonce, e.message ?: "Get public key failed")
+            }
+        }
+    }
+
+    private fun handleSwtcBatchTransactions(network: String, nonce: String, batchReq: JSONObject) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val result = swtcMiddleware.batchTransactions(batchReq, getOrigin())
+                sendSuccessResponse(network, nonce, result)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in swtc_batchTransactions", e)
+                sendErrorResponse(network, nonce, e.message ?: "Batch transactions failed")
             }
         }
     }
