@@ -8,6 +8,7 @@ plugins {
     alias(libs.plugins.google.protobuf) apply false
     alias(libs.plugins.ktlint) apply false
     jacoco
+    `maven-publish`
 }
 
 jacoco {
