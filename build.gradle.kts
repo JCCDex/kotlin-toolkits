@@ -1,3 +1,5 @@
+import org.gradle.api.publish.PublishingExtension
+import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.tasks.testing.Test
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
@@ -18,11 +20,27 @@ jacoco {
 
 subprojects {
     apply(plugin = "jacoco")
+    apply(plugin = "maven-publish")
 
     pluginManager.withPlugin("org.jetbrains.kotlin.android") {
         apply(plugin = "org.jlleitschuh.gradle.ktlint")
     }
 
+    // Publish each Android library module so JitPack can collect artifacts.
+    // JitPack invokes `publishToMavenLocal` with -Pgroup/-Pversion (e.g.
+    // -Pgroup=com.github.JCCDex -Pversion=v0.2.9); read those raw values from
+    // startParameter because modules hard-code their own group/version.
+    // AGP 8+ does not create SoftwareComponents automatically; singleVariant
+    // opts the release variant into publishing so components["release"] exists.
+    afterEvaluate {
+        if (pluginManager.hasPlugin("com.android.library")) {
+            extensions.configure<com.android.build.gradle.LibraryExtension> {
+                publishing {
+                    singleVariant("release")
+                }
+            }
+        }
+    }
     tasks.withType<Test>().configureEach {
         systemProperty(
             "robolectric.dependency.repo.url",
@@ -31,6 +49,25 @@ subprojects {
         extensions.configure(org.gradle.testing.jacoco.plugins.JacocoTaskExtension::class.java) {
             isIncludeNoLocationClasses = true
             excludes = listOf("jdk.internal.*")
+        }
+    }
+}
+
+// Components are registered by AGP only after all projects are configured;
+// create publications in projectsEvaluated so components["release"] is available.
+gradle.projectsEvaluated {
+    subprojects {
+        if (pluginManager.hasPlugin("com.android.library")) {
+            extensions.configure<PublishingExtension> {
+                publications {
+                    create<MavenPublication>("maven") {
+                        from(components["release"])
+                        groupId = gradle.startParameter.projectProperties["group"] ?: "com.github.JCCDex"
+                        artifactId = project.name
+                        version = gradle.startParameter.projectProperties["version"] ?: project.version.toString()
+                    }
+                }
+            }
         }
     }
 }
