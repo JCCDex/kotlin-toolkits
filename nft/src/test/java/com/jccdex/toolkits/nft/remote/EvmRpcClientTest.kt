@@ -1,10 +1,12 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.jccdex.toolkits.core.model.ChainDefaults
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -18,13 +20,18 @@ class EvmRpcClientTest {
         }
 
     @Test
-    fun `DEFAULT_RPC_NODES contains expected chains`() {
-        val chains = EvmRpcClient.DEFAULT_RPC_NODES.keys
-        assertEquals(true, chains.contains(1L)) // Ethereum
-        assertEquals(true, chains.contains(137L)) // Polygon
-        assertEquals(true, chains.contains(56L)) // BSC
-        assertEquals(true, chains.contains(8453L)) // Base
-        assertEquals(true, chains.contains(42161L)) // Arbitrum
+    fun `ChainDefaults Evm contains expected chains`() {
+        val ethUrls = ChainDefaults.Evm.getRpcUrls(1L)
+        val polygonUrls = ChainDefaults.Evm.getRpcUrls(137L)
+        val bscUrls = ChainDefaults.Evm.getRpcUrls(56L)
+        val baseUrls = ChainDefaults.Evm.getRpcUrls(8453L)
+        val arbUrls = ChainDefaults.Evm.getRpcUrls(42161L)
+
+        assertTrue("ETH should have URLs", ethUrls.isNotEmpty())
+        assertTrue("Polygon should have URLs", polygonUrls.isNotEmpty())
+        assertTrue("BSC should have URLs", bscUrls.isNotEmpty())
+        assertTrue("Base should have URLs", baseUrls.isNotEmpty())
+        assertTrue("Arbitrum should have URLs", arbUrls.isNotEmpty())
     }
 
     @Test

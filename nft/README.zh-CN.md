@@ -6,6 +6,83 @@
 - 拉取并缓存 NFT 元数据
 - 统一解析 NFT 远程图片地址（IPFS / 相对路径 / metadata image）
 - 生成头像候选数据
+- **EVM Token URI 解析（v0.4.0+）**
+
+---
+
+## 0. EVM Token URI 解析（v0.4.0+）
+
+### 架构
+
+纯 Kotlin 实现，无外部依赖：
+
+```
+应用层 → EvmTokenUriClientFactory → EvmTokenUriClient
+          ↓
+        ChainDefaults（默认节点配置）
+          ↓
+        EvmRpcClient（JSON-RPC + Fallback）
+          ↓
+        EvmAbiCodec（ABI 编解码）
+```
+
+### 核心类
+
+- **ChainDefaults** - 链配置管理
+  - `ChainDefaults.Evm.getRpcUrls(chainId)` - 获取 EVM 链默认 RPC 节点列表
+  - `ChainDefaults.Swtc.getRpcUrls()` - 获取 SWTC 链默认 RPC 节点列表
+
+- **EvmTokenUriClientFactory** - 工厂类（提供 4 种创建方式）
+  - `createDefault()` - 使用 ChainDefaults 默认节点
+  - `create(provider)` - 完全自定义节点
+  - `createWithFallback(additionalNodes)` - 企业推荐方案
+  - `createWithOverride(customNodes)` - 部分覆盖
+
+### 使用示例
+
+```kotlin
+// 方式1: 默认配置（开发测试）
+val client = EvmTokenUriClientFactory.createDefault()
+
+// 方式2: 完全自定义（企业完全控制）
+val client = EvmTokenUriClientFactory.create { chainId ->
+    when (chainId) {
+        1L -> listOf("https://eth.your-node.com")
+        else -> emptyList()
+    }
+}
+
+// 方式3: 扩展默认节点（企业推荐）
+val client = EvmTokenUriClientFactory.createWithFallback(
+    additionalNodes = mapOf(
+        1L to listOf("https://eth.your-private-node.com")
+    )
+)
+// 执行顺序：公共节点（先）→ 私有节点（fallback）
+
+// 方式4: 部分覆盖
+val client = EvmTokenUriClientFactory.createWithOverride(
+    customNodes = mapOf(
+        1L to listOf("https://eth.your-private-node.com")
+    )
+)
+
+// 调用
+val tokenUri = client.resolveEthrTokenUri(
+    contract = "0x...",
+    tokenId = "123",
+    chainId = 1L
+)
+```
+
+### 企业推荐方案
+
+**createWithFallback**:
+- 执行顺序：公共节点（先尝试）→ 私有节点（fallback）
+- 优点：公共节点免费，私有节点保证可用性
+- 适用：生产环境
+
+---
 
 ## 1. 模块与关键类
 

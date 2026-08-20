@@ -124,32 +124,4 @@ class EvmRpcClient(
             connection.disconnect()
         }
     }
-
-    companion object {
-        val DEFAULT_RPC_NODES =
-            mapOf(
-                1L to
-                    listOf(
-                        "https://ethereum.publicnode.com",
-                        "https://eth.llamarpc.com"
-                    ),
-                137L to
-                    listOf(
-                        "https://polygon-rpc.com",
-                        "https://polygon.publicnode.com"
-                    ),
-                56L to
-                    listOf(
-                        "https://bsc-dataseed.binance.org"
-                    ),
-                8453L to
-                    listOf(
-                        "https://mainnet.base.org"
-                    ),
-                42161L to
-                    listOf(
-                        "https://arb1.arbitrum.io/rpc"
-                    )
-            )
-    }
 }
