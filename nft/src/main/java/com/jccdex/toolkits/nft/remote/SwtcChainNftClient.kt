@@ -1,6 +1,7 @@
 package com.jccdex.toolkits.nft.remote
 
 import android.util.Base64
+import com.jccdex.toolkits.core.model.ChainDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -23,7 +24,7 @@ import javax.net.ssl.X509TrustManager
  * Aligns with CCDAOConnector `image-cache.js` (`resolveSwtcNft`).
  */
 class SwtcChainNftClient(
-    private val rpcNodes: List<String> = DEFAULT_RPC_NODES,
+    private val rpcNodes: List<String> = ChainDefaults.Swtc.getRpcUrls(),
     private val certificatePins: List<String> = emptyList()
 ) {
     suspend fun fetchMetadataUri(tokenId: String): String? =
@@ -141,11 +142,6 @@ class SwtcChainNftClient(
     }
 
     companion object {
-        val DEFAULT_RPC_NODES =
-            listOf(
-                "https://srje115qd43qw2.swtc.top"
-            )
-
         fun parseErcInfoMetadataUri(response: JSONObject): String? {
             val tokenInfosElement =
                 response

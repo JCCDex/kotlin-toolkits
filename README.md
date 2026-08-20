@@ -84,6 +84,90 @@ JS 资产 / 第三方密码学库
 
 ## 2. 技术思路
 
+### 2.0 NFT 模块（v0.4.0 新增）
+
+#### EVM Token URI 解析
+
+**架构**：纯 Kotlin 实现，无外部依赖。
+
+```
+应用层 → EvmTokenUriClientFactory.create() → EvmTokenUriClient
+         ↓
+       EvmAbiCodec（ABI 编解码）
+         ↓
+       EvmRpcClient（JSON-RPC 调用 + Fallback）
+         ↓
+       normalizeRemoteAssetUrl（IPFS URL 规范化）
+```
+
+**核心类**：
+- **ChainDefaults** - 链配置管理（v0.4.0+）
+  - `ChainDefaults.Evm.getRpcUrls(chainId)` - 获取 EVM 链默认 RPC 节点列表
+  - `ChainDefaults.Evm.getDefaultRpcUrl(chainId)` - 获取 EVM 链默认 RPC 节点
+  - `ChainDefaults.Swtc.getRpcUrls()` - 获取 SWTC 链默认 RPC 节点列表
+  - 提供 EVM 和 SWTC 配置分离，遵循单一职责原则
+  
+- **EvmAbiCodec** - ABI 编解码工具（纯静态方法）
+  - `buildTokenUriCallData()` - 构建 ERC-721 `tokenURI(uint256)` 调用数据
+  - `decodeAbiString()` - 解码 ABI 动态字符串
+  - `decodeBytes32()` - 解码静态 bytes32
+  
+- **EvmRpcClient** - EVM JSON-RPC 客户端
+  - 支持多节点 fallback（失败自动切换）
+  - 可配置超时（默认 10s connect + 10s read）
+  
+- **EvmTokenUriClient** - 实现 `EthTokenUriResolver` 接口
+  - `EvmTokenUriClientFactory.createDefault()` - 使用 ChainDefaults 默认节点
+  - `EvmTokenUriClientFactory.create(provider)` - 完全自定义节点
+  - `EvmTokenUriClientFactory.createWithFallback(additionalNodes)` - 企业推荐方案
+  - `EvmTokenUriClientFactory.createWithOverride(customNodes)` - 部分覆盖
+
+**使用示例**：
+
+```kotlin
+// 方式1: 默认配置（开发测试）
+val client = EvmTokenUriClientFactory.createDefault()
+
+// 方式2: 完全自定义（企业完全控制）
+val client = EvmTokenUriClientFactory.create { chainId ->
+    when (chainId) {
+        1L -> listOf("https://eth.your-node.com")
+        137L -> listOf("https://polygon.your-node.com")
+        else -> emptyList()
+    }
+}
+
+// 方式3: 扩展默认节点（企业推荐：公共节点优先，私有节点 fallback）
+val client = EvmTokenUriClientFactory.createWithFallback(
+    additionalNodes = mapOf(
+        1L to listOf("https://eth.your-private-node.com"),
+        137L to listOf("https://polygon.your-private-node.com")
+    )
+)
+
+// 方式4: 部分覆盖（只修改部分链）
+val client = EvmTokenUriClientFactory.createWithOverride(
+    customNodes = mapOf(
+        1L to listOf("https://eth.your-private-node.com")
+    )
+)
+
+// 调用
+val tokenUri = client.resolveEthrTokenUri(
+    contract = "0x...",
+    tokenId = "123",
+    chainId = 1L
+)
+```
+
+**迁移价值**：
+- 消除应用层重复实现（jdid-android、ccdao-connector-android 各 100+ 行）
+- 统一 ABI 编解码逻辑，避免不一致
+- 简化 DI 配置，避免循环依赖
+- 提供 ChainDefaults 统一管理节点配置，避免配置分散
+
+---
+
 ### 2.1 密钥库（`:vault`）双层加密
 
 1. **整文件层（Tink AEAD + Android Keystore）**  
