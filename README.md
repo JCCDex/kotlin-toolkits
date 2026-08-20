@@ -84,6 +84,66 @@ JS 资产 / 第三方密码学库
 
 ## 2. 技术思路
 
+### 2.0 NFT 模块（v0.4.0 新增）
+
+#### EVM Token URI 解析
+
+**架构**：纯 Kotlin 实现，无外部依赖。
+
+```
+应用层 → EvmTokenUriClientFactory.create() → EvmTokenUriClient
+         ↓
+       EvmAbiCodec（ABI 编解码）
+         ↓
+       EvmRpcClient（JSON-RPC 调用 + Fallback）
+         ↓
+       normalizeRemoteAssetUrl（IPFS URL 规范化）
+```
+
+**核心类**：
+- **EvmAbiCodec** - ABI 编解码工具（纯静态方法）
+  - `buildTokenUriCallData()` - 构建 ERC-721 `tokenURI(uint256)` 调用数据
+  - `decodeAbiString()` - 解码 ABI 动态字符串
+  - `decodeBytes32()` - 解码静态 bytes32
+  
+- **EvmRpcClient** - EVM JSON-RPC 客户端
+  - 支持多节点 fallback（失败自动切换）
+  - 可配置超时（默认 10s connect + 10s read）
+  - `DEFAULT_RPC_NODES` 提供公共节点作为参考（生产环境建议注入自有节点）
+  
+- **EvmTokenUriClient** - 实现 `EthTokenUriResolver` 接口
+  - `EvmTokenUriClientFactory.create(chainRpcProvider)` - 工厂方法，注入 RPC 配置
+  - `EvmTokenUriClientFactory.createDefault()` - 仅用于测试（公共节点不稳定）
+
+**使用示例**：
+
+```kotlin
+// 推荐方式：应用注入自有节点
+val client = EvmTokenUriClientFactory.create { chainId ->
+    when (chainId) {
+        1L -> listOf("https://eth.your-node.com")
+        137L -> listOf("https://polygon.your-node.com")
+        else -> emptyList()
+    }
+}
+
+// 调用
+val tokenUri = client.resolveEthrTokenUri(
+    contract = "0x...",
+    tokenId = "123",
+    chainId = 1L
+)
+```
+
+**迁移价值**：
+- 消除应用层重复实现（jdid-android、ccdao-connector-android 各 100+ 行）
+- 统一 ABI 编解码逻辑，避免不一致
+- 简化 DI 配置，避免循环依赖
+
+详见 [docs/NFT_MIGRATION_GUIDE.md](docs/NFT_MIGRATION_GUIDE.md)。
+
+---
+
 ### 2.1 密钥库（`:vault`）双层加密
 
 1. **整文件层（Tink AEAD + Android Keystore）**  
