@@ -15,6 +15,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Skip tests on direct pushes whose head commit message starts with
+    # chore:/ci:/docs: (conventional-commit prefix). Pull requests always run.
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event.head_commit != null &&
+        !startsWith(github.event.head_commit.message, 'chore:') &&
+        !startsWith(github.event.head_commit.message, 'ci:') &&
+        !startsWith(github.event.head_commit.message, 'docs:'))
 
     steps:
       - name: Checkout
