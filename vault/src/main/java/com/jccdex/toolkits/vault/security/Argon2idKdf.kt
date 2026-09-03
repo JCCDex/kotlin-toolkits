@@ -23,6 +23,11 @@ object Argon2idKdf {
         p: Params,
         keyLen: Int = 32
     ): ByteArray {
+        // NOTE(L-2): Original implementation uses String(password).toByteArray() which:
+        // 1. Creates an intermediate String that cannot be wiped
+        // 2. Silently replaces non-UTF-8 bytes with '?'
+        // Directly using password.copyOf() would change KDF input and break existing vaults.
+        // Migration strategy needed: detect old format, derive with old method, re-encrypt with new method.
         val pwd = String(password).toByteArray(Charsets.UTF_8)
         try {
             val params =

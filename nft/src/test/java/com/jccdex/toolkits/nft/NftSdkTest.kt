@@ -51,6 +51,18 @@ class NftSdkTest {
     }
 
     @Test
+    fun `extractResolvedMetadataImageUrl reads nested data image field`() {
+        val sdk = NftSdk.create(mockk<NftDao>())
+        assertEquals(
+            "https://example.com/nft/avatar.png",
+            sdk.extractResolvedMetadataImageUrl(
+                """{"data":{"image":"./nft/avatar.png"}}""",
+                "https://example.com/meta.json"
+            )
+        )
+    }
+
+    @Test
     fun `extractResolvedMetadataImageUrl reads and normalizes image field`() {
         val sdk = NftSdk.create(mockk<NftDao>())
         assertEquals(
@@ -275,6 +287,61 @@ class NftSdkTest {
         }
 
     @Test
+    fun `resolveCredentialImage resolves evm nft from chain ids when metadata uri missing`() =
+        runTest {
+            val resolver = mockk<EthTokenUriResolver>()
+            val context = ApplicationProvider.getApplicationContext<Application>()
+            val database =
+                Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
+                    .allowMainThreadQueries()
+                    .build()
+            val sdk = NftSdk.create(database.nftDao(), resolver)
+            val server = MockWebServer()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(200)
+                    .setBody(
+                        """
+                        {
+                          "name": "CCDAO NFT #4",
+                          "image": "ipfs://bafybeiequepagic2llma3wv22n3rjwloi35pvc65luyesayx6eb2r3dftu/4.png"
+                        }
+                        """.trimIndent()
+                    )
+            )
+            server.start()
+
+            try {
+                coEvery {
+                    resolver.resolveEthrTokenUri(
+                        "0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a",
+                        "4",
+                        1L
+                    )
+                } returns server.url("/meta.json").toString()
+
+                val resolved =
+                    sdk.resolveCredentialImage(
+                        CredentialImageRequest(
+                            imageUrl = null,
+                            metadataUri = null,
+                            chainId = 1L,
+                            contractAddress = "0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a",
+                            tokenId = "4"
+                        )
+                    )
+
+                assertEquals(
+                    "https://ipfs.jccdex.cn/ipfs/bafybeiequepagic2llma3wv22n3rjwloi35pvc65luyesayx6eb2r3dftu/4.png",
+                    resolved?.url
+                )
+            } finally {
+                server.shutdown()
+                database.close()
+            }
+        }
+
+    @Test
     fun `resolveCredentialImages deduplicates identical requests`() =
         runTest {
             val context = ApplicationProvider.getApplicationContext<Application>()
@@ -477,6 +544,7 @@ class NftSdkTest {
                     .allowMainThreadQueries()
                     .build()
             val sdk = NftSdk.create(database.nftDao())
+            SsrfGuard.enabled = false
 
             try {
                 database.nftDao().upsertEvmNftItems(
@@ -615,6 +683,7 @@ class NftSdkTest {
                     .allowMainThreadQueries()
                     .build()
             val sdk = NftSdk.create(database.nftDao())
+            SsrfGuard.enabled = false
 
             try {
                 database.nftDao().upsertEvmNftItems(

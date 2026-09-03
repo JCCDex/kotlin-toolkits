@@ -16,11 +16,14 @@ data class WalletAccount(
     val path: Path? = null,
     val publicKey: String = ""
 ) {
-    fun isRootHD(): Boolean = isHD && path?.isRoot() == true && parentId == null
+    fun isRootHD(): Boolean = AccountClassification.isRootHD(isHD, parentId, path?.account, path?.change, path?.index)
 
-    fun isSubHD(): Boolean = isHD && (path?.isRoot() == false || parentId != null)
+    fun isSubHD(): Boolean = AccountClassification.isSubHD(isHD, parentId, path?.account, path?.change, path?.index)
 
-    fun isTraditional(): Boolean = !isHD
+    fun isTraditional(): Boolean = AccountClassification.isTraditional(isHD)
+
+    /** Traditional or sub-HD account (not an HD root). */
+    fun isNonRoot(): Boolean = AccountClassification.isNonRoot(isHD, parentId, path?.account, path?.change, path?.index)
 }
 
 fun List<ChainType>.toBip44JsonArray(): JSONArray {

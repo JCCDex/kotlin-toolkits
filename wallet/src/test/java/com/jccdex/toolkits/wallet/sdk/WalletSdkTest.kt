@@ -1,10 +1,10 @@
 package com.jccdex.toolkits.wallet.sdk
 
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.core.model.Path
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
 import com.jccdex.toolkits.wallet.model.Keypair
 import com.jccdex.toolkits.wallet.model.Mnemonic
-import com.jccdex.toolkits.wallet.model.Path
 import com.jccdex.toolkits.wallet.model.SubWallet
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import kotlinx.coroutines.test.runTest
@@ -529,6 +529,11 @@ class WalletSdkTest {
             started = false
             destroyed = false
         }
+
+        override fun initialize(
+            context: android.content.Context,
+            config: com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+        ) = Unit
 
         override fun start() {
             started = true

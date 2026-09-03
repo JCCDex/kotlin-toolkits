@@ -4,8 +4,8 @@ import android.app.Application
 import android.content.Context
 import androidx.datastore.dataStoreFile
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.core.security.wipe
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
-import com.jccdex.toolkits.vault.util.wipe
 import io.mockk.clearAllMocks
 import io.mockk.every
 import io.mockk.mockkStatic
@@ -56,7 +56,7 @@ class VaultRepositoryTest {
             .commit()
         vault = VaultRepository.get(appContext)
 
-        mockkStatic("com.jccdex.toolkits.vault.util.WipeKt")
+        mockkStatic("com.jccdex.toolkits.core.security.WipeKt")
         every { any<CharArray>().wipe() } answers { }
         every { any<ByteArray>().wipe() } answers { }
     }
@@ -236,6 +236,16 @@ class VaultRepositoryTest {
 
             val derivedMnemonic = vault.getMnemonic(address1, password)
             Assertions.assertThat(derivedMnemonic).isEqualTo(chineseMnemonic)
+        }
+
+    @Test
+    fun importPrivateKey_rejectsEmptyKey() =
+        runTest {
+            val ex =
+                assertFailsWith<IllegalArgumentException> {
+                    vault.importPrivateKey("jEmpty", ByteArray(0))
+                }
+            assert(ex.message?.contains("empty private key") == true)
         }
 
     @Test
@@ -466,6 +476,26 @@ class VaultRepositoryTest {
         }
 
     @Test
+    fun test_06_1_removeAddressUnlocked() =
+        runTest {
+            vault.unlock("1234".toByteArray())
+            val address = "0xrollbackunlocked000000000000000000000001"
+            vault.importPrivateKey(address, "aa".repeat(32).toByteArray())
+            Assertions.assertThat(vault.listAccounts()).contains(address)
+
+            vault.lock()
+            val locked =
+                assertFailsWith<IllegalStateException> {
+                    vault.removeAddressUnlocked(address)
+                }
+            assert(locked.message?.contains("Vault is locked") == true)
+
+            vault.unlock("1234".toByteArray())
+            vault.removeAddressUnlocked(address)
+            Assertions.assertThat(vault.listAccounts()).doesNotContain(address)
+        }
+
+    @Test
     fun test_07_listAccounts_and_hasPassword() =
         runTest {
             val password = "vault-pass".toByteArray()
@@ -493,10 +523,10 @@ class VaultRepositoryTest {
             Assertions.assertThat(vault.hasBiometric()).isFalse()
 
             val beforeUpdate =
-                assertFailsWith<Error> {
+                assertFailsWith<IllegalStateException> {
                     vault.getBiometric()
                 }
-            assert(beforeUpdate.message?.contains("Biometric cache is not exist") == true)
+            assert(beforeUpdate.message?.contains("Biometric cache does not exist") == true)
 
             val iv = "bio-iv".toByteArray()
             val ciphertext = "bio-ciphertext".toByteArray()
@@ -514,10 +544,10 @@ class VaultRepositoryTest {
             Assertions.assertThat(vault.hasBiometric()).isFalse()
 
             val afterClear =
-                assertFailsWith<Error> {
+                assertFailsWith<IllegalStateException> {
                     vault.getBiometric()
                 }
-            assert(afterClear.message?.contains("Biometric cache is not exist") == true)
+            assert(afterClear.message?.contains("Biometric cache does not exist") == true)
         }
 
     // ── VaultSession + unlock/lock ──

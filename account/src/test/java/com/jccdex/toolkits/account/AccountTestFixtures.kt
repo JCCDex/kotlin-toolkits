@@ -43,6 +43,24 @@ internal object AccountTestFixtures {
             publicKey = publicKey
         )
 
+    fun hdDerivedWithoutParent(
+        id: String = "derived-no-parent",
+        address: String = "0xderivednoparent",
+        chain: ChainType = ChainType.ETH,
+        index: Int = 1,
+        publicKey: String = "02eb3f226cc818fa2afadb906be5c5f0a92182d9a987b77e3667dd3b13783e8d09"
+    ): WalletAccount =
+        WalletAccount(
+            id = id,
+            address = address,
+            chain = chain,
+            name = "derived-sub",
+            isHD = true,
+            parentId = null,
+            path = Path(chain = chain.bip44Code, index = index),
+            publicKey = publicKey
+        )
+
     fun traditional(
         id: String = "3135bfda-a99e-491f-8b72-5f0e3dc71a9d",
         address: String = "0x6a4f486f8f2e010c577afe8913886d977ba4b683",

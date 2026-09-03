@@ -454,39 +454,44 @@
 
   }
 
-  global.PromiseBridge = {
-    call: async function (method, params, id) {
-      if (DEBUG) console.log('[PromiseBridge] call:', method, 'id:', id);
-      try {
-        if (!method || typeof method !== 'string') {
-          throw new Error('invalid method');
-        }
-        const fn = methods[method];
-        if (!fn) {
-          throw new Error('no such method: ' + method);
-        }
-        if (DEBUG) console.log('[PromiseBridge] executing method:', method);
-        const result = await fn(params);
-        if (DEBUG) console.log('[PromiseBridge] method result:', method, 'success');
+  if (typeof global.__installPromiseBridge === "function") {
+    Object.assign(global.__BridgeMethods, methods);
+    global.__installPromiseBridge();
+  } else {
+    global.PromiseBridge = {
+      call: async function (method, params, id) {
+        if (DEBUG) console.log('[PromiseBridge] call:', method, 'id:', id);
+        try {
+          if (!method || typeof method !== 'string') {
+            throw new Error('invalid method');
+          }
+          const fn = methods[method];
+          if (!fn) {
+            throw new Error('no such method: ' + method);
+          }
+          if (DEBUG) console.log('[PromiseBridge] executing method:', method);
+          const result = await fn(params);
+          if (DEBUG) console.log('[PromiseBridge] method result:', method, 'success');
 
-        if (window.JSBridge && window.JSBridge.onPromiseResult) {
-          window.JSBridge.onPromiseResult(id, JSON.stringify({ result: result }));
-        } else {
-          if (DEBUG) console.error('[PromiseBridge] JSBridge.onPromiseResult not available');
-        }
-      } catch (err) {
-        if (DEBUG) console.error('[PromiseBridge] error:', err);
-        if (window.JSBridge && window.JSBridge.onPromiseResult) {
-          window.JSBridge.onPromiseResult(id, JSON.stringify({ error: (err && err.message) ? err.message : String(err) }));
+          if (window.JSBridge && window.JSBridge.onPromiseResult) {
+            window.JSBridge.onPromiseResult(id, JSON.stringify({ result: result }));
+          } else {
+            if (DEBUG) console.error('[PromiseBridge] JSBridge.onPromiseResult not available');
+          }
+        } catch (err) {
+          if (DEBUG) console.error('[PromiseBridge] error:', err);
+          if (window.JSBridge && window.JSBridge.onPromiseResult) {
+            window.JSBridge.onPromiseResult(id, JSON.stringify({ error: (err && err.message) ? err.message : String(err) }));
+          }
         }
       }
-    }
-  };
+    };
 
-  if (window.JSBridge && window.JSBridge.onBridgeReady) {
-    try {
-      window.JSBridge.onBridgeReady();
-    } catch (_) {
+    if (window.JSBridge && window.JSBridge.onBridgeReady) {
+      try {
+        window.JSBridge.onBridgeReady();
+      } catch (_) {
+      }
     }
   }
 

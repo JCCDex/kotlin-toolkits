@@ -1,23 +1,21 @@
 package com.jccdex.toolkits.wallet.model
 
+import com.jccdex.toolkits.core.model.Path
+
 data class Keypair(
     val privateKey: String,
     val publicKey: String
-)
-
-data class Path(
-    val chain: Long,
-    val account: Int = 0,
-    val change: Int = 0,
-    val index: Int = 0
 ) {
-    override fun toString(): String = "m/44'/$chain'/$account'/$change/$index"
+    // Mask the private key in logs/crash reports (M-W7). equals/hashCode stay field-based.
+    override fun toString(): String = "Keypair(privateKey=***, publicKey=$publicKey)"
 }
 
 data class Mnemonic(
     val value: String,
     val language: String
-)
+) {
+    override fun toString(): String = "Mnemonic(value=***, language=$language)"
+}
 
 data class SubWallet(
     val chain: Long,
@@ -32,7 +30,11 @@ data class GenerateHDWalletResult(
     val language: String,
     val keypair: Keypair,
     val accounts: List<SubWallet> = emptyList()
-)
+) {
+    override fun toString(): String =
+        "GenerateHDWalletResult(mnemonic=***, address=$address, language=$language, " +
+            "keypair=$keypair, accounts=$accounts)"
+}
 
 data class TraditionalDeriveResult(
     val address: String,
@@ -41,4 +43,8 @@ data class TraditionalDeriveResult(
     val secret: String? = null,
     val path: Path? = null,
     val sourcePrivateKey: String? = null
-)
+) {
+    override fun toString(): String =
+        "TraditionalDeriveResult(address=$address, keypair=$keypair, mnemonic=$mnemonic, " +
+            "secret=${secret?.let { "***" }}, path=$path, sourcePrivateKey=${sourcePrivateKey?.let { "***" }})"
+}

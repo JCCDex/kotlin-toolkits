@@ -1,8 +1,12 @@
 package com.jccdex.toolkits.nft.remote
 
+import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Test
+import java.io.StringReader
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class NftRemoteAssetResolverTest {
@@ -70,5 +74,51 @@ class NftRemoteAssetResolverTest {
         assertTrue(SsrfGuard.check("http://127.0.0.1/metadata"))
         assertTrue(SsrfGuard.check("http://192.168.1.1/metadata"))
         assertTrue(SsrfGuard.check("https://example.com/metadata"))
+    }
+
+    // ── M-3/M-9N: readTextLimited bounds HTTP response size ──
+
+    @Test
+    fun `readTextLimited returns content within limit`() {
+        assertEquals("hello", StringReader("hello").buffered().readTextLimited())
+    }
+
+    @Test
+    fun `readTextLimited aborts on oversized body`() {
+        assertNull(StringReader("x".repeat(MAX_HTTP_RESPONSE_CHARS + 1)).buffered().readTextLimited())
+    }
+
+    // ── M-8N: resolveRemoteImageUrl must not return internal/SSRF URLs ──
+
+    @Test
+    fun `resolveRemoteImageUrl returns http image url`() =
+        runTest {
+            assertEquals(
+                "http://example.com/avatar.png",
+                resolveRemoteImageUrl("http://example.com/avatar.png", null)
+            )
+        }
+
+    @Test
+    fun `resolveRemoteImageUrl returns safe external url`() =
+        runTest {
+            assertEquals("https://8.8.8.8/avatar.png", resolveRemoteImageUrl("https://8.8.8.8/avatar.png", null))
+        }
+
+    @Test
+    fun `isLoadableRemoteAssetUrl allows http and https and caps data url`() {
+        assertTrue(isLoadableRemoteAssetUrl("https://example.com/a.png"))
+        assertTrue(isLoadableRemoteAssetUrl("http://example.com/a.png"))
+        assertTrue(isLoadableRemoteAssetUrl("data:image/png;base64,AAAA"))
+        assertFalse(isLoadableRemoteAssetUrl("data:image/png;base64," + "A".repeat(1024 * 1024 + 1)))
+    }
+
+    @Test
+    fun `normalizeDisplayRemoteAssetUrl delegates to normalizeRemoteAssetUrl`() {
+        assertEquals("http://example.com/image.png", normalizeDisplayRemoteAssetUrl("http://example.com/image.png"))
+        assertEquals(
+            "https://ipfs.jccdex.cn/ipfs/QmExample",
+            normalizeDisplayRemoteAssetUrl("ipfs://QmExample")
+        )
     }
 }

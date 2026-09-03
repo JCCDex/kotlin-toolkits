@@ -3,8 +3,10 @@ package com.jccdex.toolkits.did.sdk
 import android.content.Context
 import android.util.Log
 import com.google.gson.JsonElement
-import com.google.gson.JsonParser
+import com.jccdex.toolkits.core.json.JsonPath
+import com.jccdex.toolkits.core.nft.NftStandards
 import com.jccdex.toolkits.did.model.ChainType
+import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.CredentialVerificationResult
 import com.jccdex.toolkits.did.model.Did
 import com.jccdex.toolkits.did.model.DidAvatarCredential
@@ -32,6 +34,7 @@ import com.jccdex.toolkits.did.storage.room.RoomDidStore
 import com.jccdex.toolkits.did.store.IDidStore
 import com.jccdex.toolkits.did.util.ChecksumUtils
 import com.jccdex.toolkits.did.util.DidCredentialHelper
+import com.jccdex.toolkits.did.util.DidDocumentReader
 import com.jccdex.toolkits.did.util.DidResolveUtils
 import com.jccdex.toolkits.nft.NftSdk
 import com.jccdex.toolkits.nft.model.AvatarCandidate
@@ -39,6 +42,7 @@ import com.jccdex.toolkits.nft.model.CredentialImageRequest
 import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.NftMetadataFields
 import com.jccdex.toolkits.nft.model.ResolvedCredentialImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -49,6 +53,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import com.jccdex.toolkits.nft.model.Nft as NftSdkNft
 
+/**
+ * DID SDK facade over the JS bridge.
+ *
+ * **Security boundary (H-DID4):** signing/publish methods accept a `privateKey: String` which is
+ * passed over the WebView JS bridge into the page JS. The key therefore exists (as an un-wipeable
+ * `String`) in the Kotlin heap, an intermediate JSON string, and the JS engine heap. Hosts must:
+ * (1) keep WebView debugging disabled, (2) treat the key as exposed to the bridge page, and
+ * (3) prefer performing signatures in Keystore/secure hardware and sending only the result to JS.
+ */
 class DidSdk internal constructor(
     private val bridge: IDidBridge,
     private val core: DidCoreService,
@@ -77,8 +90,8 @@ class DidSdk internal constructor(
     suspend fun getDidDocument(did: String): DidEntity? = core.getDidDocument(did)
 
     fun getProfile(doc: String): Profile? {
-        val nickname = readProfileField(doc, "nickname")
-        val preferredAvatar = readProfileField(doc, "preferredAvatar")
+        val nickname = DidDocumentReader.readProfileField(doc, "nickname")
+        val preferredAvatar = DidDocumentReader.readProfileField(doc, "preferredAvatar")
         return if (nickname != null || preferredAvatar != null) {
             Profile(
                 nickname = nickname ?: "",
@@ -94,6 +107,8 @@ class DidSdk internal constructor(
             try {
                 val entity = core.getDidDocument(did) ?: return@withContext null
                 entity.toDid(did)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "generateDid error", e)
                 null
@@ -105,19 +120,13 @@ class DidSdk internal constructor(
             try {
                 val entity = core.getDidDocument(did) ?: return@withContext null
                 val profile = getProfile(entity.doc)
-                val credentials = readJsonArray(entity.doc, "credentials")
+                val credentials = DidDocumentReader.readJsonArray(entity.doc, "credentials")
                 var nft: Nft? = null
 
                 if (profile != null) {
-                    val vc = findCredentialById(credentials, profile.preferredAvatar)?.toString()
+                    val vc = DidCredentialHelper.findCredentialById(credentials, profile.preferredAvatar)?.toString()
                     if (!vc.isNullOrBlank()) {
                         nft = generateAvatarNft(vc)
-                    }
-                }
-
-                nft?.let {
-                    if (!it.hasLocal && it.uri.isNotBlank()) {
-                        nftSdk?.fetchAndCacheNftMeta(it.contract, it.tokenId, it.uri)
                     }
                 }
 
@@ -125,8 +134,25 @@ class DidSdk internal constructor(
                     nickname = profile?.nickname ?: "",
                     bio = "",
                     createdTime = nft?.issuanceDate ?: "",
-                    nft = nft
+                    nft =
+                        nft?.let { resolved ->
+                            if (!resolved.hasLocal && resolved.uri.isNotBlank()) {
+                                nftSdk?.fetchAndCacheNftMeta(resolved.contract, resolved.tokenId, resolved.uri)
+                                val cachedImage =
+                                    nftSdk
+                                        ?.resolveCredentialImage(resolved.image, resolved.uri)
+                                if (!cachedImage.isNullOrBlank()) {
+                                    resolved.copy(image = cachedImage)
+                                } else {
+                                    resolved
+                                }
+                            } else {
+                                resolved
+                            }
+                        }
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "generateProfileVC error", e)
                 null
@@ -148,9 +174,10 @@ class DidSdk internal constructor(
      * Aligns with did_DApp `identity.vue` (`credentialSubject.standard`).
      */
     internal fun isSwtcAvatarVc(vc: String): Boolean {
-        when (readString(vc, "credentialSubject.standard")?.lowercase()) {
-            SWTC_NFT_STANDARD -> return true
-            EVM_NFT_STANDARD -> return false
+        val standard = readString(vc, "credentialSubject.standard")
+        when {
+            NftStandards.isJingtumNft(standard) -> return true
+            NftStandards.isErc721(standard) -> return false
         }
         val nftIssuer = readString(vc, "credentialSubject.nftIssuer").orEmpty()
         val contractAddress = readString(vc, "credentialSubject.contractAddress").orEmpty()
@@ -167,13 +194,14 @@ class DidSdk internal constructor(
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val nftIssuer = readString(vc, "credentialSubject.nftIssuer") ?: ""
         val tokenName = readString(vc, "credentialSubject.tokenName") ?: ""
+        val image = readString(vc, "credentialSubject.image")
         val issuance = readString(vc, "issuanceDate") ?: ""
         return Nft(
             contract = nftIssuer,
             tokenId = tokenId,
             name = tokenName,
             uri = "",
-            image = null,
+            image = image,
             hasLocal = false,
             issuanceDate = issuance,
             chainId = null
@@ -236,7 +264,8 @@ class DidSdk internal constructor(
     private suspend fun buildEthrNft(vc: String): Nft? {
         val tokenId = readString(vc, "credentialSubject.tokenId") ?: ""
         val contract = readString(vc, "credentialSubject.contractAddress") ?: ""
-        val chainId = readElement(vc, "credentialSubject.chainId")?.asLong ?: 0L
+        val chainId = JsonPath.readEvmChainIdLong(vc) ?: 0L
+        val image = readString(vc, "credentialSubject.image")
         val issuance = readString(vc, "issuanceDate") ?: ""
         return try {
             Nft(
@@ -244,11 +273,13 @@ class DidSdk internal constructor(
                 tokenId = tokenId,
                 name = "",
                 uri = "",
-                image = null,
+                image = image,
                 hasLocal = false,
                 issuanceDate = issuance,
                 chainId = chainId
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Throwable) {
             null
         }
@@ -274,12 +305,13 @@ class DidSdk internal constructor(
      * 这里补上 [privateKey] 后交由 JS 桥跑完整 issueCredential，返回签名后的 VC（JSON 字符串）。
      *
      * SDK validates credential **structure** only (M-15). The host app must obtain
-     * explicit user confirmation before calling this — library-side confirm UI is deferred
-     * to avoid a breaking callback API.
+     * explicit user confirmation before calling this — [onConfirm] is suspend so hosts can
+     * show a confirmation dialog (same pattern as TransactionConfirmCallback).
      */
     suspend fun signCredentialForDApp(
         privateKey: String,
-        payload: String
+        payload: String,
+        onConfirm: (suspend (String) -> Boolean)? = null
     ): String =
         withContext(Dispatchers.IO) {
             val params =
@@ -295,6 +327,13 @@ class DidSdk internal constructor(
             }
             require(credential.has("issuer") || params.has("issuerObject")) {
                 "Credential must have issuer or issuerObject"
+            }
+            // H-DID1: a DApp credential may grant asset usage rights, so refuse to blind-sign
+            // without an explicit host confirmation callback (fail closed).
+            val confirmed = onConfirm?.invoke(payload) ?: false
+            if (!confirmed) {
+                Log.e("DidSdk", "signCredentialForDApp rejected: no host confirmation")
+                throw IllegalStateException("Credential signing requires host confirmation")
             }
             bridge.call("signCredential", params.toString())
         }
@@ -349,10 +388,23 @@ class DidSdk internal constructor(
                             "didStat",
                             JSONObject().apply { put("did", did) }.toString(),
                             DidStatResult::class.java
-                        ).cid.orEmpty()
-                    } catch (_: Exception) {
-                        ""
+                        ).cid
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // M-DID3: cannot confirm the DID does not already exist → refuse to overwrite.
+                        Log.e("DidSdk", "Failed to check DID stat before initial upload for $did", e)
+                        return@withContext false
                     }
+                if (!previousCid.isNullOrBlank()) {
+                    Log.i("DidSdk", "DID already exists on chain, resolving: $did")
+                    val resolved = resolveDid(did)
+                    if (!resolved.isNullOrBlank()) {
+                        Log.i("DidSdk", "DID resolved and saved successfully: $did")
+                        return@withContext true
+                    }
+                    Log.w("DidSdk", "DID exists on chain but document is corrupted, will re-create: $did")
+                }
                 val didDoc =
                     JSONObject().apply {
                         put("version", "1.0.0")
@@ -398,7 +450,7 @@ class DidSdk internal constructor(
                                                     "ipns",
                                                     "ipns://k2k4r8ntjlp1cmgped39eq1fi4yze6fsr8og1kcmjhamgs3ubwkfldei"
                                                 )
-                                                if (previousCid.isNotBlank()) {
+                                                if (!previousCid.isNullOrBlank()) {
                                                     put(
                                                         "previousCid",
                                                         previousCid
@@ -434,6 +486,8 @@ class DidSdk internal constructor(
                 } else {
                     false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error uploading initial DID doc", e)
                 false
@@ -450,7 +504,7 @@ class DidSdk internal constructor(
             try {
                 val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext false
                 val json = JSONObject(doc)
-                val services = readServices(json)
+                val services = DidDocumentReader.readServices(json)
                 val previousCid = readDidStatCid(did)
                 val updatedServices = JSONArray()
                 for (i in 0 until services.length()) {
@@ -467,7 +521,7 @@ class DidSdk internal constructor(
                                             put("nickname", nickname)
                                             put(
                                                 "preferredAvatar",
-                                                readProfileField(doc, "preferredAvatar").orEmpty()
+                                                DidDocumentReader.readProfileField(doc, "preferredAvatar").orEmpty()
                                             )
                                         }
                                     )
@@ -500,6 +554,8 @@ class DidSdk internal constructor(
                 } else {
                     false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error updating DID nickname", e)
                 false
@@ -517,7 +573,7 @@ class DidSdk internal constructor(
                 val doc = resolveBaseDoc(did, currentDoc) ?: return@withContext false
                 val vcJson = generateAvatarVc(privateKey, did, selectedAvatar)
                 val json = JSONObject(doc)
-                val services = readServices(json)
+                val services = DidDocumentReader.readServices(json)
                 val previousCid = readDidStatCid(did)
                 val updatedServices = JSONArray()
                 for (i in 0 until services.length()) {
@@ -533,7 +589,7 @@ class DidSdk internal constructor(
                                         JSONObject().apply {
                                             put(
                                                 "nickname",
-                                                readProfileField(doc, "nickname").orEmpty()
+                                                DidDocumentReader.readProfileField(doc, "nickname").orEmpty()
                                             )
                                             put("preferredAvatar", selectedAvatar.credentialId)
                                         }
@@ -557,7 +613,7 @@ class DidSdk internal constructor(
                         else -> updatedServices.put(service)
                     }
                 }
-                val credentials = readJsonArray(json.toString(), "credentials")
+                val credentials = DidDocumentReader.readJsonArray(json.toString(), "credentials")
                 val updatedCredentials = JSONArray()
                 for (i in 0 until credentials.length()) {
                     val cred = credentials.getJSONObject(i)
@@ -577,6 +633,8 @@ class DidSdk internal constructor(
                 } else {
                     false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error updating DID avatar", e)
                 false
@@ -597,6 +655,8 @@ class DidSdk internal constructor(
                 } else {
                     false
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error publishing delete DID", e)
                 false
@@ -659,6 +719,8 @@ class DidSdk internal constructor(
                 } else {
                     DidWriteResult(success = false)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error adding credential to DID", e)
                 DidWriteResult(success = false)
@@ -696,7 +758,7 @@ class DidSdk internal constructor(
                 json.put(
                     "service",
                     DidCredentialHelper.clearPreferredAvatarIfMatches(
-                        readServices(json),
+                        DidDocumentReader.readServices(json),
                         credentialId
                     )
                 )
@@ -711,6 +773,8 @@ class DidSdk internal constructor(
                 } else {
                     DidWriteResult(success = false)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error deleting credential from DID", e)
                 DidWriteResult(success = false)
@@ -743,8 +807,11 @@ class DidSdk internal constructor(
                 val verifyResult = verifyCredential(credentialJson)
                 QueryVcidResult(
                     isValid = verifyResult.verified,
-                    credential = credentialJson
+                    credential = credentialJson,
+                    unknown = verifyResult.unknown
                 )
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error querying VCID", e)
                 QueryVcidResult(isValid = false, credential = null)
@@ -800,6 +867,8 @@ class DidSdk internal constructor(
                 } else {
                     DidWriteResult(success = false)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error binding VCID to DID", e)
                 DidWriteResult(success = false)
@@ -824,11 +893,11 @@ class DidSdk internal constructor(
                 val creds = DidCredentialHelper.readCredentials(doc)
                 val found =
                     (0 until creds.length()).any { i ->
-                        creds.optJSONObject(i)?.optString("id") == credentialId
+                        creds.optJSONObject(i)?.optString("id").equals(credentialId, ignoreCase = true)
                     }
                 require(found) { "credential not found: $credentialId" }
                 val json = JSONObject(doc)
-                val services = readServices(json)
+                val services = DidDocumentReader.readServices(json)
                 val updatedServices = JSONArray()
                 for (index in 0 until services.length()) {
                     val service = services.getJSONObject(index)
@@ -843,7 +912,7 @@ class DidSdk internal constructor(
                                         JSONObject().apply {
                                             put(
                                                 "nickname",
-                                                readProfileField(doc, "nickname").orEmpty()
+                                                DidDocumentReader.readProfileField(doc, "nickname").orEmpty()
                                             )
                                             put("preferredAvatar", credentialId)
                                         }
@@ -867,6 +936,8 @@ class DidSdk internal constructor(
                 } else {
                     DidWriteResult(success = false)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error updating preferred avatar", e)
                 DidWriteResult(success = false)
@@ -885,10 +956,15 @@ class DidSdk internal constructor(
             val credential = JSONObject(credentialJson)
             val expirationDate = credential.optString("expirationDate")
             if (expirationDate.isNotBlank()) {
-                runCatching { Instant.parse(expirationDate) }
-                    .getOrNull()
-                    ?.takeIf { it.isBefore(Instant.now()) }
-                    ?.let { return@withContext CredentialVerificationResult(verified = false) }
+                val expiresAt = runCatching { Instant.parse(expirationDate) }.getOrNull()
+                if (expiresAt == null) {
+                    // M-DID6: a malformed expiration date cannot be verified → fail closed.
+                    Log.e("DidSdk", "Invalid expirationDate: $expirationDate")
+                    return@withContext CredentialVerificationResult(verified = false)
+                }
+                if (expiresAt.isBefore(Instant.now())) {
+                    return@withContext CredentialVerificationResult(verified = false)
+                }
             }
 
             if (DidCredentialHelper.credentialIncludesType(
@@ -896,7 +972,13 @@ class DidSdk internal constructor(
                     DidCredentialHelper.VC_TYPE_USAGE_AUTHORIZATION
                 )
             ) {
-                if (checkGranteeCredentialUpdate(credentialJson).isUpdate) {
+                val granteeCheck = checkGranteeCredentialUpdate(credentialJson)
+                if (granteeCheck.fetchFailed) {
+                    // M-DID1: a transient owner-doc fetch failure is NOT proof of revocation.
+                    Log.e("DidSdk", "Grantee credential update check could not fetch owner doc")
+                    return@withContext CredentialVerificationResult(verified = false, unknown = true)
+                }
+                if (granteeCheck.isUpdate) {
                     return@withContext CredentialVerificationResult(verified = false)
                 }
             }
@@ -962,6 +1044,8 @@ class DidSdk internal constructor(
                     )
                 }
                 GranteeCredentialUpdateResult(isUpdate = false, credential = matched.toString())
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("DidSdk", "Error checking grantee credential update", e)
                 GranteeCredentialUpdateResult(isUpdate = true, credential = null, fetchFailed = true)
@@ -1056,7 +1140,7 @@ class DidSdk internal constructor(
     ) {
         val previousCid = readDidStatCid(did)
         if (previousCid.isBlank()) return
-        val services = readServices(json)
+        val services = DidDocumentReader.readServices(json)
         val updatedServices = JSONArray()
         for (index in 0 until services.length()) {
             val service = services.getJSONObject(index)
@@ -1084,7 +1168,10 @@ class DidSdk internal constructor(
                 JSONObject().apply { put("did", did) }.toString(),
                 DidStatResult::class.java
             ).cid.orEmpty()
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "readDidStatCid failed for $did", e)
             ""
         }
 
@@ -1095,12 +1182,19 @@ class DidSdk internal constructor(
         if (currentDoc.isNotBlank()) return currentDoc
 
         val chainDoc =
-            runCatching {
+            try {
                 bridge.call(
                     "didResolve",
                     JSONObject().apply { put("did", did) }.toString()
                 )
-            }.getOrNull()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // M-DID2: a failed chain resolve must not silently fall back to a stale local doc,
+                // which would let this write overwrite updates written by other devices.
+                Log.e("DidSdk", "Failed to resolve latest DID document for $did", e)
+                return null
+            }
 
         if (!chainDoc.isNullOrBlank() && !DidResolveUtils.isMissingDidDocument(chainDoc)) {
             return chainDoc
@@ -1109,80 +1203,27 @@ class DidSdk internal constructor(
         return core.getDidDocument(did)?.doc
     }
 
-    private fun readServices(json: JSONObject): JSONArray =
-        json.optJSONArray("service") ?: json.optJSONArray("services") ?: JSONArray()
-
-    private fun readProfileField(
-        doc: String,
-        key: String
-    ): String? {
-        return try {
-            val root = JSONObject(doc)
-            val services = readServices(root)
-            for (i in 0 until services.length()) {
-                val service = services.optJSONObject(i) ?: continue
-                if (service.optString("type") != "Profile") continue
-                val endpoint = service.optJSONObject("serviceEndpoint") ?: continue
-                val value = endpoint.optString(key, "")
-                if (value.isNotBlank()) return value
-            }
-            null
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    private fun readJsonArray(
-        doc: String,
-        key: String
-    ): JSONArray =
-        try {
-            val root = JSONObject(doc)
-            root.optJSONArray(key) ?: root.optJSONArray(
-                when (key) {
-                    "service" -> "services"
-                    "verificationMethod" -> "verificationMethods"
-                    else -> key
-                }
-            ) ?: JSONArray()
-        } catch (_: Exception) {
-            JSONArray()
-        }
-
     private fun readString(
         doc: String,
         path: String
-    ): String? = readElement(doc, path)?.takeIf { !it.isJsonNull }?.asString
+    ): String? = JsonPath.readString(doc, path)
 
     private fun readElement(
         doc: String,
         path: String
-    ): JsonElement? {
-        return try {
-            val cleaned = path.removePrefix("$.")
-            var current: JsonElement = JsonParser.parseString(doc)
-            if (cleaned.isBlank()) return current
-            for (part in cleaned.split('.')) {
-                if (!current.isJsonObject) return null
-                current = current.asJsonObject.get(part) ?: return null
-            }
-            current
-        } catch (_: Exception) {
-            null
-        }
-    }
+    ): JsonElement? = JsonPath.readElement(doc, path)
 
     private fun readString(
         doc: String,
         path: String,
         defaultValue: String
-    ): String = readString(doc, path) ?: defaultValue
+    ): String = JsonPath.readString(doc, path, defaultValue)
 
     private fun DidEntity.toDid(did: String): Did {
         val created = readString(doc, "created").orEmpty()
         val updated = readString(doc, "updated").orEmpty()
         val verificationMethods =
-            readJsonArray(doc, "verificationMethod").let { array ->
+            DidDocumentReader.readJsonArray(doc, "verificationMethod").let { array ->
                 buildList {
                     for (i in 0 until array.length()) {
                         val item = array.optJSONObject(i) ?: continue
@@ -1219,17 +1260,6 @@ class DidSdk internal constructor(
         return json.toString()
     }
 
-    private fun findCredentialById(
-        credentials: JSONArray,
-        id: String
-    ): JSONObject? {
-        for (i in 0 until credentials.length()) {
-            val item = credentials.optJSONObject(i) ?: continue
-            if (item.optString("id").equals(id, true)) return item
-        }
-        return null
-    }
-
     private fun formatUtc(utc: String): String {
         if (utc.isBlank()) return ""
         return try {
@@ -1237,6 +1267,8 @@ class DidSdk internal constructor(
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
                 .withZone(ZoneId.of("Asia/Shanghai"))
                 .format(instant)
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             utc
         }
@@ -1256,15 +1288,24 @@ class DidSdk internal constructor(
         asset: DidAvatarAsset,
         granteeDid: String = ownerDid
     ): String =
-        if (asset.isSwtc) {
-            val tokenNameClean = asset.tokenName.orEmpty().replace("\\s+".toRegex(), "")
-            "$ownerDid#nft-$tokenNameClean-${asset.issuer.orEmpty()}-${asset.tokenId}-$granteeDid"
-        } else {
-            val checksumContract =
-                asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }
-                    .orEmpty()
-            "$ownerDid#nft-$checksumContract-${asset.tokenId}-$granteeDid"
-        }
+        DidCredentialHelper.generateVcId(
+            UnifiedNftCredentialData(
+                type = CredentialAuthorizationType.SELF,
+                granteeDid = granteeDid,
+                ownerDid = ownerDid,
+                chainId = asset.chainId ?: 1L,
+                tokenId = asset.tokenId,
+                standard =
+                    if (asset.isSwtc) {
+                        DidCredentialHelper.STANDARD_JINGTUM_NFT
+                    } else {
+                        DidCredentialHelper.STANDARD_ERC721
+                    },
+                contractAddress = asset.contract,
+                nftIssuer = asset.issuer,
+                tokenName = asset.tokenName
+            )
+        )
 
     private fun buildAvatarCredential(
         ownerDid: String,
@@ -1286,7 +1327,7 @@ class DidSdk internal constructor(
             )
         } else {
             val checksumContract =
-                asset.contract?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }
+                asset.contract?.let { ChecksumUtils.toChecksumAddress(it) }
                     .orEmpty()
             DidAvatarCredential(
                 credentialId = credentialId,
@@ -1304,8 +1345,7 @@ class DidSdk internal constructor(
     }
 
     companion object {
-        private const val SWTC_NFT_STANDARD = "jingtumnft"
-        private const val EVM_NFT_STANDARD = "erc-721"
+        private const val TAG = "DidSdk"
 
         fun create(
             context: Context,

@@ -1,7 +1,6 @@
 package com.jccdex.toolkits.dappconnect
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner

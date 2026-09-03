@@ -15,7 +15,6 @@ import kotlin.test.assertTrue
  */
 @RunWith(RobolectricTestRunner::class)
 class WebAppInterfaceJsCallbackTest {
-
     @Test
     fun jsCallback_quotesMaliciousNonce() {
         val malicious = """abc");alert(1);//"""

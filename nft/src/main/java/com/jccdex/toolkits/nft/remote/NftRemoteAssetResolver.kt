@@ -1,17 +1,33 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.google.gson.JsonObject
+import com.jccdex.toolkits.core.json.optStringSafe
+import com.jccdex.toolkits.core.net.HttpFetcher
+import com.jccdex.toolkits.core.net.HttpResult
+import com.jccdex.toolkits.core.net.RedirectPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.HttpURLConnection
+import java.io.BufferedReader
 import java.net.InetAddress
 import java.net.URL
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 const val DEFAULT_IPFS_GATEWAY_BASE_URL = "https://ipfs.jccdex.cn/ipfs/"
+
+// NFT metadata/image hosts vary (http tokenUri, IPFS gateways, etc.) — SSRF stays off here to
+// match pre-hardening behaviour; Coil loads the resolved URL on device.
+private val httpFetcher =
+    HttpFetcher(
+        maxResponseBytes = MAX_HTTP_RESPONSE_CHARS,
+        httpsOnly = false,
+        redirectPolicy = RedirectPolicy.NONE,
+        ssrfCheck = null
+    )
 
 private object NftMetadataImageCache {
     private val resolvedByMetadataUrl = ConcurrentHashMap<String, String?>()
@@ -41,10 +57,30 @@ private object NftMetadataImageCache {
 
 fun isLoadableRemoteAssetUrl(url: String?): Boolean {
     val value = url?.trim().orEmpty()
-    return value.startsWith("http://", ignoreCase = true) ||
-        value.startsWith("https://", ignoreCase = true) ||
-        value.startsWith("data:", ignoreCase = true)
+    if (value.startsWith("http://", ignoreCase = true)) return true
+    if (value.startsWith("https://", ignoreCase = true)) return true
+    if (value.startsWith("data:", ignoreCase = true)) {
+        return value.length <= MAX_DATA_URL_LENGTH
+    }
+    return false
 }
+
+/** M-12N: cap on inline data: URLs (length ≈ decoded size for base64). */
+private const val MAX_DATA_URL_LENGTH = 1024 * 1024 // 1 MB
+
+private val METADATA_IMAGE_KEYS = listOf("image", "image_url", "imageUrl")
+
+private fun JSONObject.metadataPayload(): JSONObject = optJSONObject("data") ?: this
+
+private fun JSONObject.firstNonBlankImageField(): String? =
+    METADATA_IMAGE_KEYS.firstNotNullOfOrNull { key -> optStringSafe(key) }
+
+private fun JsonObject.metadataPayload(): JsonObject = get("data")?.takeIf { it.isJsonObject }?.asJsonObject ?: this
+
+private fun JsonObject.firstNonBlankImageField(): String? =
+    METADATA_IMAGE_KEYS.firstNotNullOfOrNull { key ->
+        get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotBlank() }
+    }
 
 private fun String.looksLikeImageAssetUrl(): Boolean {
     val value = trim()
@@ -102,12 +138,35 @@ fun extractMetadataImageUrl(
     metadataUri: String
 ): String? {
     val metadata = runCatching { JSONObject(metadataBody) }.getOrNull() ?: return null
-    val payload = metadata.optJSONObject("data") ?: metadata
-    return sequenceOf("image", "image_url", "imageUrl")
-        .mapNotNull { key -> payload.optString(key).takeIf { it.isNotBlank() } }
-        .mapNotNull { normalizeRemoteAssetUrl(it, metadataUri) }
-        .firstOrNull()
+    return extractMetadataImageUrl(metadata, metadataUri)
 }
+
+fun extractMetadataImageUrl(
+    metadata: JSONObject,
+    metadataUri: String
+): String? =
+    metadata
+        .metadataPayload()
+        .firstNonBlankImageField()
+        ?.let { normalizeRemoteAssetUrl(it, metadataUri) }
+
+fun extractMetadataImageUrl(
+    metadata: JsonObject,
+    metadataUri: String
+): String? =
+    metadata
+        .metadataPayload()
+        .firstNonBlankImageField()
+        ?.let { normalizeRemoteAssetUrl(it, metadataUri) }
+
+/**
+ * Normalizes [rawUrl] for host image loaders (Coil). Same as [normalizeRemoteAssetUrl] but omits
+ * non-loadable schemes.
+ */
+fun normalizeDisplayRemoteAssetUrl(
+    rawUrl: String?,
+    baseUrl: String? = null
+): String? = normalizeRemoteAssetUrl(rawUrl, baseUrl)?.takeIf { isLoadableRemoteAssetUrl(it) }
 
 suspend fun resolveRemoteImageUrl(
     imageUrl: String?,
@@ -120,7 +179,9 @@ suspend fun resolveRemoteImageUrl(
         ?.takeIf { it.looksLikeJsonPayload() }
         ?.let { extractMetadataImageUrl(it, normalizedMetadataUri.orEmpty()) }
         ?.let { inlineImage ->
-            return inlineImage
+            if (isLoadableRemoteAssetUrl(inlineImage)) {
+                return inlineImage
+            }
         }
 
     normalizeRemoteAssetUrl(imageUrl, normalizedMetadataUri)?.let { resolved ->
@@ -141,7 +202,8 @@ suspend fun resolveRemoteImageUrl(
             NftMetadataImageCache.getOrFetch(normalizedMetadataUri) {
                 fetchMetadataImage(normalizedMetadataUri)
             }
-        }.getOrNull()
+        }.onFailure { if (it is CancellationException) throw it }
+            .getOrNull()
     val resolved = normalizeRemoteAssetUrl(metadataImage, normalizedMetadataUri)
     if (isLoadableRemoteAssetUrl(resolved)) {
         return resolved
@@ -151,13 +213,13 @@ suspend fun resolveRemoteImageUrl(
 }
 
 object SsrfGuard {
-    /** Replaced in tests to bypass SSRF check. */
-    @Volatile var enabled: Boolean = true
+    /** Replaced in tests to bypass SSRF check (internal: hosts cannot disable at runtime). */
+    @Volatile internal var enabled: Boolean = true
 
     fun check(url: String): Boolean {
         if (!enabled) return true
         val parsed = runCatching { URL(url) }.getOrNull() ?: return false
-        if (parsed.protocol !in setOf("http", "https", "ipfs")) return false
+        if (parsed.protocol !in setOf("http", "https")) return false
         val host = parsed.host ?: return false
         if (host.isBlank()) return false
         // Fail closed: unresolved host must not be treated as safe.
@@ -168,24 +230,12 @@ object SsrfGuard {
 
 suspend fun fetchMetadataImage(metadataUrl: String): String? =
     withContext(Dispatchers.IO) {
-        if (!SsrfGuard.check(metadataUrl)) return@withContext null
-        val connection =
-            (URL(metadataUrl).openConnection() as? HttpURLConnection)
-                ?: return@withContext null
-        try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 10_000
-            connection.instanceFollowRedirects = false
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299 || body.isBlank()) {
-                return@withContext null
-            }
-            extractMetadataImageUrl(body, metadataUrl)
-        } finally {
-            connection.disconnect()
+        when (val result = httpFetcher.get(metadataUrl)) {
+            is HttpResult.Success ->
+                result.value
+                    .takeIf { it.isNotBlank() }
+                    ?.let { extractMetadataImageUrl(it, metadataUrl) }
+            is HttpResult.Failure -> null
         }
     }
 
@@ -223,4 +273,22 @@ private fun canonicalizeHttpIpfsUrl(rawUrl: String): String? {
         return null
     }
     return "$DEFAULT_IPFS_GATEWAY_BASE_URL$ipfsPath"
+}
+
+/** Maximum chars accepted from a single HTTP response body (M-3/M-9N OOM guard). */
+internal const val MAX_HTTP_RESPONSE_CHARS = 5 * 1024 * 1024
+
+/** Reads [this] reader, aborting (null) if it exceeds [maxChars] (defense against OOM / DoS). */
+internal fun BufferedReader.readTextLimited(maxChars: Int = MAX_HTTP_RESPONSE_CHARS): String? {
+    val sb = StringBuilder()
+    val buf = CharArray(8192)
+    var total = 0
+    while (true) {
+        val n = read(buf)
+        if (n < 0) break
+        total += n
+        if (total > maxChars) return null
+        sb.append(buf, 0, n)
+    }
+    return sb.toString()
 }

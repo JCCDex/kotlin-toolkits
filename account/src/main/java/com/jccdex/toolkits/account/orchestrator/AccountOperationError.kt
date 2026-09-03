@@ -16,6 +16,11 @@ sealed class AccountOperationError {
         val message: String = "Password is wrong"
     ) : AccountOperationError()
 
+    /** Vault auth is time-locked after too many failed attempts (M-21A); [remainingMs] for countdown UI. */
+    data class VaultLocked(
+        val remainingMs: Long
+    ) : AccountOperationError()
+
     data class Failure(
         val cause: Throwable
     ) : AccountOperationError()

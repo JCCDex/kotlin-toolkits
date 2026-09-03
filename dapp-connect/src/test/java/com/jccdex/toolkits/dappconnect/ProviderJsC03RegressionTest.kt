@@ -10,7 +10,6 @@ import kotlin.test.assertTrue
  * Reads the asset from the module source tree (no Android resource merge required).
  */
 class ProviderJsC03RegressionTest {
-
     @Test
     fun providerJs_doesNotExposeWindowSendResponseOrRequestQueue() {
         val js = loadProviderAsset()
@@ -45,8 +44,9 @@ class ProviderJsC03RegressionTest {
                 File("src/main/assets/ccdao-eip1193-provider.js"),
                 File("dapp-connect/src/main/assets/ccdao-eip1193-provider.js")
             )
-        val file = candidates.firstOrNull { it.isFile }
-            ?: error("ccdao-eip1193-provider.js not found from ${File(".").absolutePath}")
+        val file =
+            candidates.firstOrNull { it.isFile }
+                ?: error("ccdao-eip1193-provider.js not found from ${File(".").absolutePath}")
         return file.readText()
     }
 }

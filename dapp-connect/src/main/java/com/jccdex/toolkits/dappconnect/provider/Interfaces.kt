@@ -10,40 +10,70 @@ import org.json.JSONObject
 
 interface AccountProvider {
     val accounts: Flow<List<WalletAccount>>
+
     fun getAccountsByChain(chain: ChainType): Flow<List<WalletAccount>>
+
     val currentAccount: Flow<WalletAccount?>
+
     suspend fun getAccountByAddress(address: String): WalletAccount?
+
     suspend fun setCurrentAccount(accountId: String)
+
     suspend fun getAccountName(address: String): String?
 }
 
 interface SecretProvider {
-    suspend fun getPrivateKeyForAddress(address: String, origin: String): String?
-    suspend fun getSecretForAddress(address: String, origin: String): String?
+    suspend fun getPrivateKeyForAddress(
+        address: String,
+        origin: String
+    ): String?
+
+    suspend fun getSecretForAddress(
+        address: String,
+        origin: String
+    ): String?
 }
 
 interface NodeProvider {
     suspend fun getRpcUrl(chain: ChainType): String
+
     suspend fun getBlockNumber(chain: ChainType): String
-    suspend fun getTransactionCount(address: String, chain: ChainType): String
+
+    suspend fun getTransactionCount(
+        address: String,
+        chain: ChainType
+    ): String
+
     suspend fun getGasPrice(chain: ChainType): String
+
     suspend fun getMaxPriorityFeePerGas(chain: ChainType): String
-    suspend fun estimateGas(txParams: JSONObject, chain: ChainType): String
-    suspend fun broadcastTransaction(signedTx: String, chain: ChainType): String
+
+    suspend fun estimateGas(
+        txParams: JSONObject,
+        chain: ChainType
+    ): String
+
+    suspend fun broadcastTransaction(
+        signedTx: String,
+        chain: ChainType
+    ): String
+
     suspend fun sendRawTransaction(signedBlob: String): String
+
     suspend fun fetchSequence(address: String): Long
 }
 
 // ── Chain switching ──
 
 interface ChainProvider {
-    suspend fun requestChainSwitch(fromChain: ChainType, toChain: ChainType, origin: String): Boolean
+    suspend fun requestChainSwitch(
+        fromChain: ChainType,
+        toChain: ChainType,
+        origin: String
+    ): Boolean
+
     val supportedChains: List<ChainType>
     val currentChain: ChainType
-}
-
-interface ChainConfigProvider {
-    fun getChainId(chain: ChainType): Long?
 }
 
 // ── NFT (optional) ──
@@ -82,6 +112,11 @@ data class SwtcNftResult(
 )
 
 interface NftProvider {
-    suspend fun getEvmNfts(address: String, chainIdHex: String, whiteList: JSONArray?): EvmNftResult
+    suspend fun getEvmNfts(
+        address: String,
+        chainIdHex: String,
+        whiteList: JSONArray?
+    ): EvmNftResult
+
     suspend fun getSwtcNfts(address: String): SwtcNftResult
 }

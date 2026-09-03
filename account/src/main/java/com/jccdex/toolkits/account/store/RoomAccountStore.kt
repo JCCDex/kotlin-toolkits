@@ -99,6 +99,10 @@ class RoomAccountStore(
         accountDao.updateParentId(accountId, parentId)
     }
 
+    // M-13A: raw addresses without chain mapping — orphan reconciliation stays usable even when a
+    // row carries an unknown chain code (which would make toWalletAccount throw, M-15A).
+    override suspend fun listAllAddresses(): List<String> = accountDao.getAllAddresses()
+
     override suspend fun findByAddress(
         address: String,
         chain: ChainType

@@ -5,7 +5,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DAppConnectSdkTest {
-
     @Test
     fun `isSafeUrl accepts valid https url`() {
         assertTrue(DAppConnectSdk.isSafeUrl("https://example.com"))
@@ -41,9 +40,32 @@ class DAppConnectSdkTest {
         assertTrue(DAppConnectSdk.isSafeUrl("https://ccda.ooo"))
     }
 
-    // Note: reject tests (file, javascript, empty, malformed, ftp) use
-    // android.util.Patterns.WEB_URL which requires Robolectric. Those are
-    // covered by integration tests in the app layer.
+    // M-D1: non-http(s) schemes are rejected by the scheme short-circuit BEFORE the
+    // WEB_URL fallback, so these run in plain JVM without Robolectric.
+    @Test
+    fun `isSafeUrl rejects ftp`() {
+        assertFalse(DAppConnectSdk.isSafeUrl("ftp://example.com/file"))
+    }
+
+    @Test
+    fun `isSafeUrl rejects rtsp`() {
+        assertFalse(DAppConnectSdk.isSafeUrl("rtsp://example.com/stream"))
+    }
+
+    @Test
+    fun `isSafeUrl rejects file`() {
+        assertFalse(DAppConnectSdk.isSafeUrl("file:///android_asset/index.html"))
+    }
+
+    @Test
+    fun `isSafeUrl rejects javascript scheme`() {
+        assertFalse(DAppConnectSdk.isSafeUrl("javascript:alert(1)"))
+    }
+
+    @Test
+    fun `isSafeUrl rejects data url`() {
+        assertFalse(DAppConnectSdk.isSafeUrl("data:text/html,<h1>hi</h1>"))
+    }
 
     // ── JS helpers ──
 

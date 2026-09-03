@@ -5,16 +5,17 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.dataStoreFile
 import com.google.protobuf.ByteString
+import com.jccdex.toolkits.core.security.wipe
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.vault.security.AESCrypto
 import com.jccdex.toolkits.vault.security.Argon2idKdf
 import com.jccdex.toolkits.vault.serializer.VaultSerializer
-import com.jccdex.toolkits.vault.util.wipe
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.security.GeneralSecurityException
 import java.security.MessageDigest
-import java.util.Locale.getDefault
+import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -94,7 +95,7 @@ class VaultRepository private constructor(
                 // AES-GCM auth is sufficient — wrong key → AEADBadTagException
                 true
             }
-        } catch (_: Throwable) {
+        } catch (_: GeneralSecurityException) {
             false
         }
     }
@@ -186,7 +187,7 @@ class VaultRepository private constructor(
 
     suspend fun getBiometric(): BiometricEntry {
         if (!hasBiometric()) {
-            throw Error("Biometric cache is not exist")
+            throw IllegalStateException("Biometric cache does not exist")
         }
         return vaultStore.data.first().biometric
     }
@@ -260,13 +261,13 @@ class VaultRepository private constructor(
                                     env.aad.toByteArray()
                                 )
                             MessageDigest.isEqual(pt, password)
-                        } catch (_: Throwable) {
+                        } catch (_: GeneralSecurityException) {
                             false
                         }
                     key.wipe()
                     result
                 }
-            } catch (_: Throwable) {
+            } catch (_: Exception) {
                 false
             }
         password.wipe()
@@ -368,7 +369,7 @@ class VaultRepository private constructor(
                 val keys =
                     privateKeys
                         .filter { !addressInKeys(it.address) }
-                        .distinctBy { it.address.lowercase(getDefault()) }
+                        .distinctBy { it.address.lowercase(Locale.ROOT) }
                 val derivedKey = derivedKey()
                 val entries = mutableListOf<PrivateKeyEntry>()
                 for (key in keys) {
@@ -404,7 +405,20 @@ class VaultRepository private constructor(
         if (!verifyPassword(password)) {
             throw IllegalArgumentException("Password is wrong")
         }
+        lockedRemoveAddress(address)
+    }
 
+    /**
+     * Removes key/mnemonic/secret for [address] using the current unlocked session.
+     * Use for additive-import rollback when the backup password is not the vault password.
+     */
+    suspend fun removeAddressUnlocked(address: String) =
+        mutex.withLock {
+            check(isUnlocked) { "Vault is locked" }
+            lockedRemoveAddress(address)
+        }
+
+    private suspend fun lockedRemoveAddress(address: String) {
         vaultStore.updateData { vault ->
             val keyIndex = vault.keysList.indexOfFirst { it.address.equals(address, true) }
             val mnemonicIndex =
@@ -688,6 +702,9 @@ class VaultRepository private constructor(
         address: String,
         privateKey: ByteArray
     ) {
+        // Refuse empty keys: writing one would make `addressInKeys` true forever and silently block
+        // any later real-key import for this address (funds unavailable). Fail loudly instead.
+        require(privateKey.isNotEmpty()) { "Refusing to import empty private key for $address" }
         if (addressInKeys(address)) {
             privateKey.wipe()
             return
@@ -715,11 +732,11 @@ class VaultRepository private constructor(
         }
     }
 
-    private fun getMnemonicAAD(address: String): ByteArray = "mnemonic:${address.lowercase()}".toByteArray()
+    private fun getMnemonicAAD(address: String): ByteArray = "mnemonic:${address.lowercase(Locale.ROOT)}".toByteArray()
 
-    private fun getAddressAAD(address: String): ByteArray = "address:${address.lowercase()}".toByteArray()
+    private fun getAddressAAD(address: String): ByteArray = "address:${address.lowercase(Locale.ROOT)}".toByteArray()
 
-    private fun getSecretAAD(address: String): ByteArray = "secret:${address.lowercase()}".toByteArray()
+    private fun getSecretAAD(address: String): ByteArray = "secret:${address.lowercase(Locale.ROOT)}".toByteArray()
 
     /**
      * Clears all vault data. When [password] is non-null it is verified first; on success or when

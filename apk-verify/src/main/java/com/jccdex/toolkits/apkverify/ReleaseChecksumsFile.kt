@@ -2,6 +2,7 @@ package com.jccdex.toolkits.apkverify
 
 import android.content.Context
 import android.net.Uri
+import java.util.Locale
 
 /**
  * Parsed contents of a release checksums file.
@@ -65,8 +66,8 @@ object ReleaseChecksumsParser {
         return ReleaseChecksums(
             versionName = versionName,
             versionCode = versionCode,
-            apkSha256 = apkSha256.lowercase(),
-            signingCertSha256 = signingCertSha256.lowercase()
+            apkSha256 = apkSha256.lowercase(Locale.ROOT),
+            signingCertSha256 = signingCertSha256.lowercase(Locale.ROOT)
         )
     }
 }

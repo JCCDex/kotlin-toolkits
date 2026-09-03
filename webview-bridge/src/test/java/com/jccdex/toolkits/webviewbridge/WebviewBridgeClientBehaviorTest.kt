@@ -13,7 +13,6 @@ import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONException
 import org.json.JSONObject
-import org.junit.After
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -29,11 +28,6 @@ import java.util.concurrent.TimeUnit
 @OptIn(ExperimentalCoroutinesApi::class)
 class WebviewBridgeClientBehaviorTest {
     private val appContext = ApplicationProvider.getApplicationContext<Application>()
-
-    @After
-    fun tearDown() {
-        JsPromiseGateway.clearAll()
-    }
 
     @Test
     fun start_initializesWebView_and_loadsBridgeUrl() {
@@ -684,6 +678,7 @@ class WebviewBridgeClientBehaviorTest {
         var ready = false
         var resetReadyCalled = false
         var clearAllCalled = false
+        override var pageActive = true
 
         override fun onPromiseResult(
             id: String,

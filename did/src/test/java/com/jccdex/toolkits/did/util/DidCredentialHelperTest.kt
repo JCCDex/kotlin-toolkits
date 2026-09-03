@@ -8,6 +8,8 @@ import com.jccdex.toolkits.did.model.UsageRights
 import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,6 +62,23 @@ class DidCredentialHelperTest {
             )
 
         assertEquals("$swtcOwner#nft-GoldenSands-jIssuer-9-$granteeDid", id)
+    }
+
+    @Test
+    fun `generateVcId throws for invalid evm contract address`() {
+        val data =
+            UnifiedNftCredentialData(
+                type = CredentialAuthorizationType.SELF,
+                granteeDid = ownerDid,
+                ownerDid = ownerDid,
+                chainId = 1,
+                tokenId = "7",
+                standard = DidCredentialHelper.STANDARD_ERC721,
+                // invalid length → toChecksumAddress throws (M-DID5)
+                contractAddress = "0x1234"
+            )
+
+        assertThrows(IllegalArgumentException::class.java) { DidCredentialHelper.generateVcId(data) }
     }
 
     @Test
@@ -478,6 +497,31 @@ class DidCredentialHelperTest {
     }
 
     @Test
+    fun `parseEthrNftRefFromCredentialId extracts contract and token id`() {
+        val credentialId =
+            "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B" +
+                "#nft-0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a-4-" +
+                "did:ethr:0x12898725Cf301693733D951bb992C30310dBfb3B"
+        val result = DidCredentialHelper.parseEthrNftRefFromCredentialId(credentialId)
+        assertEquals(
+            DidCredentialHelper.EthrNftCredentialRef(
+                contractAddress = "0x5B5b422A4fEd431882606E7b0D6abb0ba84bDA3a",
+                tokenId = "4"
+            ),
+            result
+        )
+    }
+
+    @Test
+    fun `parseEthrNftRefFromCredentialId returns null for swtc credential ids`() {
+        val result =
+            DidCredentialHelper.parseEthrNftRefFromCredentialId(
+                "did:swtc:jOwner#nft-MyNFT-jIssuer-1-did:swtc:jOwner"
+            )
+        assertEquals(null, result)
+    }
+
+    @Test
     fun `ownerDidFromCredentialId extracts before file access prefix`() {
         val result = DidCredentialHelper.ownerDidFromCredentialId("did:swtc:jOwner#file-access-123")
         assertEquals("did:swtc:jOwner", result)
@@ -533,6 +577,22 @@ class DidCredentialHelperTest {
     }
 
     // ---------- findCredentialIndex ----------
+
+    @Test
+    fun `findCredentialById returns credential object`() {
+        val arr =
+            JSONArray(
+                """
+                [
+                  {"id":"cred-a","type":["VerifiableCredential"]},
+                  {"id":"cred-b","type":["VerifiableCredential"]}
+                ]
+                """.trimIndent()
+            )
+        val found = DidCredentialHelper.findCredentialById(arr, "cred-b")
+        assertEquals("cred-b", found?.optString("id"))
+        assertNull(DidCredentialHelper.findCredentialById(arr, "missing"))
+    }
 
     @Test
     fun `findCredentialIndex returns index when found`() {

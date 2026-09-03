@@ -1,6 +1,8 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.jccdex.toolkits.core.json.optStringSafe
 import com.jccdex.toolkits.nft.model.NftMetadataFields
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,6 +20,8 @@ fun extractSwtcMetadataUri(tokenInfosPayload: String?): String? {
             normalizeRemoteAssetUrl(infoData)?.let { return it }
         }
         null
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         null
     }
@@ -30,9 +34,9 @@ fun extractMetadataFields(
     val root = runCatching { JSONObject(metadataBody) }.getOrNull() ?: return NftMetadataFields(null, null, null)
     val payload = root.optJSONObject("data") ?: root
     return NftMetadataFields(
-        image = extractMetadataImageUrl(metadataBody, metadataUri),
-        name = payload.optString("name").takeIf { it.isNotBlank() },
-        description = payload.optString("description").takeIf { it.isNotBlank() }
+        image = extractMetadataImageUrl(root, metadataUri),
+        name = payload.optStringSafe("name"),
+        description = payload.optStringSafe("description")
     )
 }
 
@@ -52,6 +56,8 @@ private fun decodeHexToUtf8(hex: String): String {
             bytes[index] = byteStr.toInt(16).toByte()
         }
         String(bytes, Charsets.UTF_8)
+    } catch (e: CancellationException) {
+        throw e
     } catch (_: Exception) {
         ""
     }

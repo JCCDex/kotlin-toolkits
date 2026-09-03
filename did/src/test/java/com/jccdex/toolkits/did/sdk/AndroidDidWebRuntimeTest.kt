@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+import com.jccdex.toolkits.webviewbridge.androidAssetUrl
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
@@ -51,7 +52,7 @@ class AndroidDidWebRuntimeTest {
             } returns "typed-result"
 
             val client = RealDidWebBridgeClient(bridgeClient)
-            client.initialize(context, WebviewBridgeConfig(bridgeUrl = "file:///test.html"))
+            client.initialize(context, WebviewBridgeConfig(bridgeUrl = androidAssetUrl("did-bridge.html")))
             client.start()
 
             assertThat(client.call("ping", null)).isEqualTo("pong")
@@ -63,7 +64,7 @@ class AndroidDidWebRuntimeTest {
             verify { bridgeClient.destroy() }
         }
 
-    private class RecordingDidWebBridgeClient : IDidWebBridgeClient {
+    private class RecordingDidWebBridgeClient : IDidWebBridge {
         var initialized = false
         var started = false
         var config: WebviewBridgeConfig? = null

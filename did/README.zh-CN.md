@@ -248,7 +248,7 @@ val didSdk =
 | `DidWriteResult` | 写操作结果（`success`、`didDocument`） |
 | `CredentialVerificationResult` | 验签结果（`verified`、`results`） |
 | `GranteeCredentialUpdateResult` | 被授权 VC 变更检测（`isUpdate`、`credential`） |
-| `QueryVcidResult` | VCID 查询校验结果（`isValid`、`credential`） |
+| `QueryVcidResult` | VCID 查询校验结果（`isValid`、`credential`、`unknown`） |
 | `DidAvatarCredential` | 头像选择器用的 NFT 候选（含 `credentialId`、链信息等） |
 
 ### 8.1 签发自有 VC（self）

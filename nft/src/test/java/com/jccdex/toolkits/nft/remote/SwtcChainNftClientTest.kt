@@ -3,6 +3,7 @@ package com.jccdex.toolkits.nft.remote
 import android.app.Application
 import org.assertj.core.api.Assertions.assertThat
 import org.json.JSONObject
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -45,5 +46,21 @@ class SwtcChainNftClientTest {
         val response = JSONObject("""{"result":{"TokenInfo":{}}}""")
 
         assertThat(SwtcChainNftClient.parseErcInfoMetadataUri(response)).isNull()
+    }
+
+    // ── M-10N: RPC nodes must be https ──
+
+    @Test
+    fun publicFactory_rejectsHttpRpcNode() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SwtcChainNftClient.create(rpcNodes = listOf("http://localhost:8080"))
+        }
+    }
+
+    @Test
+    fun internalSeam_allowsHttpNodeForMockWebServer() {
+        // M-10N: internal createForTest seam for http-only MockWebServer tests.
+        // Construction must not throw (the public factory rejects http nodes).
+        SwtcChainNftClient.createForTest(rpcNodes = listOf("http://localhost:8080"))
     }
 }

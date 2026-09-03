@@ -50,6 +50,9 @@ interface IAccountStore {
         chain: ChainType
     ): WalletAccount?
 
+    /** Raw account addresses without chain mapping — usable even when a row has an unknown chain code. */
+    suspend fun listAllAddresses(): List<String>
+
     suspend fun findByAddress(address: String): WalletAccount?
 
     suspend fun findRootAccountByAddress(address: String): WalletAccount?

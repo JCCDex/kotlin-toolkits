@@ -1,6 +1,7 @@
 package com.jccdex.toolkits.dappconnect
 
 import android.webkit.WebView
+import com.jccdex.toolkits.core.rpc.ErrorCodes
 import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
@@ -79,7 +80,7 @@ abstract class WebAppInterfaceWithWebView(
         error: String
     ) {
         super.sendErrorResponse(network, nonce, error)
-        responseChannel.sendError(nonce, code = -1, message = error)
+        responseChannel.sendError(nonce, code = ErrorCodes.WALLET_ERROR, message = error)
         android.util.Log.d(TAG, "Error response queued on port")
     }
 

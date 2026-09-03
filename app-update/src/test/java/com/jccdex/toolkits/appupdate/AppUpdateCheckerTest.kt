@@ -7,7 +7,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class AppUpdateCheckerTest {
-
     private val sampleChecksums =
         ReleaseChecksums(
             versionName = "2.0.0",
@@ -51,7 +50,6 @@ class AppUpdateCheckerTest {
 }
 
 class AppUpdateCheckThrottleTest {
-
     @Test
     fun `shouldCheck returns true when force is set`() {
         assertTrue(AppUpdateCheckThrottle.shouldCheck(nowMs = 1000, lastCheckMs = 1000, force = true))

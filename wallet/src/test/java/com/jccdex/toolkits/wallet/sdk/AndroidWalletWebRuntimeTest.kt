@@ -61,7 +61,7 @@ class AndroidWalletWebRuntimeTest {
             assertThat(client.destroyed).isTrue
         }
 
-    private class RecordingBridgeClient : IWalletWebBridgeClient {
+    private class RecordingBridgeClient : IWalletBridge {
         var initialized = false
         var started = false
         var destroyed = false

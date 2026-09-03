@@ -5,18 +5,18 @@ import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
 import com.jccdex.toolkits.dappconnect.model.ChainNotSupportedException
 import com.jccdex.toolkits.dappconnect.model.SignTransactionResult
+import com.jccdex.toolkits.dappconnect.model.UnauthorizedException
 import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.ChainProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.math.BigInteger
@@ -29,15 +29,24 @@ class EthMiddleware(
     private val accountProvider: AccountProvider,
     private val secretProvider: SecretProvider,
     private val nodeProvider: NodeProvider,
-    private val chainProvider: ChainProvider? = null,
+    chainProvider: ChainProvider? = null,
     initialChain: ChainType = ChainType.BSC
 ) : IEthMiddleware {
     companion object {
         private const val TAG = "EthMiddleware"
     }
 
+    @Volatile private var chainProvider: ChainProvider? = chainProvider
+
     @Volatile private var onAccountSwitched: ((String) -> Unit)? = null
+
     @Volatile private var requestAccountsCallback: RequestAccountsCallback? = null
+
+    @Volatile private var transactionConfirmCallback: TransactionConfirmCallback? = null
+
+    override fun setChainProvider(provider: ChainProvider?) {
+        chainProvider = provider
+    }
 
     // Current selected chain
     private val _currentChainType = MutableStateFlow(initialChain)
@@ -55,6 +64,13 @@ class EthMiddleware(
      */
     override fun setRequestAccountsCallback(callback: RequestAccountsCallback?) {
         requestAccountsCallback = callback
+    }
+
+    /**
+     * Set callback for user confirmation before signing or sending transactions
+     */
+    override fun setTransactionConfirmCallback(callback: TransactionConfirmCallback?) {
+        transactionConfirmCallback = callback
     }
 
     /**
@@ -157,9 +173,25 @@ class EthMiddleware(
         Log.d(TAG, "personalSign called from origin: $origin")
         validateEvmAddress(address)
 
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SignMessage(
+                chain = _currentChainType.value,
+                origin = origin,
+                address = address,
+                message = message,
+                type = SignType.PERSONAL_SIGN
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the personalSign request")
+        }
+
         Log.d(TAG, "Signing message")
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
-            ?: throw IllegalStateException("Failed to get private key")
+        val privateKey =
+            secretProvider.getPrivateKeyForAddress(address, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         val params =
             JSONObject().apply {
@@ -173,11 +205,28 @@ class EthMiddleware(
     /**
      * Get encryption public key for an address
      */
-    override suspend fun getEncryptionPublicKey(address: String, origin: String): String {
+    override suspend fun getEncryptionPublicKey(
+        address: String,
+        origin: String
+    ): String {
         validateEvmAddress(address)
 
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
-            ?: throw IllegalStateException("Failed to get private key")
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.GetEncryptionPublicKey(
+                chain = _currentChainType.value,
+                origin = origin,
+                address = address
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the getEncryptionPublicKey request")
+        }
+
+        val privateKey =
+            secretProvider.getPrivateKeyForAddress(address, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         return WalletSdk.getEncryptionPublicKey(privateKey)
     }
@@ -185,10 +234,30 @@ class EthMiddleware(
     /**
      * Decrypt data for an address
      */
-    override suspend fun decrypt(address: String, encryptedData: String, origin: String): String {
+    override suspend fun decrypt(
+        address: String,
+        encryptedData: String,
+        origin: String
+    ): String {
         validateEvmAddress(address)
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
-            ?: throw IllegalStateException("Failed to get private key")
+
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.Decrypt(
+                chain = _currentChainType.value,
+                origin = origin,
+                address = address,
+                encryptedData = encryptedData
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the decrypt request")
+        }
+
+        val privateKey =
+            secretProvider.getPrivateKeyForAddress(address, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         return WalletSdk.decrypt(privateKey, encryptedData)
     }
@@ -196,7 +265,10 @@ class EthMiddleware(
     /**
      * Recover address from personal signature
      */
-    override suspend fun recoverPersonalSignature(message: String, signature: String): String {
+    override suspend fun recoverPersonalSignature(
+        message: String,
+        signature: String
+    ): String {
         return WalletSdk.recoverPersonalSignature(message, signature)
     }
 
@@ -210,8 +282,25 @@ class EthMiddleware(
         origin: String
     ): String {
         validateEvmAddress(address)
-        val privateKey = secretProvider.getPrivateKeyForAddress(address, origin)
-            ?: throw IllegalStateException("Failed to get private key")
+
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SignTypedData(
+                chain = _currentChainType.value,
+                origin = origin,
+                address = address,
+                typedData = typedData,
+                version = version
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the signTypedData request")
+        }
+
+        val privateKey =
+            secretProvider.getPrivateKeyForAddress(address, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         return WalletSdk.signTypedData(privateKey, typedData, version)
     }
@@ -219,14 +308,21 @@ class EthMiddleware(
     /**
      * Recover address from typed signature
      */
-    suspend fun recoverTypedSignature(data: String, signature: String, version: String): String {
+    suspend fun recoverTypedSignature(
+        data: String,
+        signature: String,
+        version: String
+    ): String {
         return WalletSdk.recoverTypedSignature(data, signature, version)
     }
 
     /**
      * Sign a transaction without sending it
      */
-    override suspend fun signTransaction(txParams: JSONObject, origin: String): SignTransactionResult {
+    override suspend fun signTransaction(
+        txParams: JSONObject,
+        origin: String
+    ): SignTransactionResult {
         require(origin.isNotBlank()) { "origin must not be blank for signTransaction" }
         val from = txParams.getString("from")
 
@@ -258,6 +354,25 @@ class EthMiddleware(
 
         Log.d(TAG, "Processing transaction for chain: ${chainType.name}")
 
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SendTransaction(
+                chain = chainType,
+                origin = origin,
+                to = txParams.optString("to", null),
+                value = txParams.optString("value", null),
+                data = txParams.optString("data", null),
+                gas = txParams.optString("gas", null),
+                gasPrice = txParams.optString("gasPrice", null),
+                nonce = txParams.optString("nonce", null),
+                txParams = txParams
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the signTransaction request")
+        }
+
         // Get nonce if not provided
         if (!txParams.has("nonce")) {
             val nonce = nodeProvider.getTransactionCount(from, chainType)
@@ -271,6 +386,8 @@ class EthMiddleware(
             if (hexValue.isEmpty()) return true
             return try {
                 hexValue.toBigInteger(16) == BigInteger.ZERO
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Exception) {
                 true
             }
@@ -290,6 +407,8 @@ class EthMiddleware(
                 try {
                     val maxPriorityFee = nodeProvider.getMaxPriorityFeePerGas(chainType)
                     txParams.put("maxPriorityFeePerGas", maxPriorityFee)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     // Fallback to default if not supported
                     txParams.put("maxPriorityFeePerGas", "0x1")
@@ -314,10 +433,12 @@ class EthMiddleware(
                 val gasEstimate = nodeProvider.estimateGas(txParams, chainType)
                 txParams.put("gas", gasEstimate)
                 txParams.put("gasLimit", gasEstimate)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                // Fallback to default gas limit
-                txParams.put("gas", "0x5208") // 21000
-                txParams.put("gasLimit", "0x5208")
+                // M-D7: fail closed instead of silently falling back to 21000 (simple-transfer value) —
+                // a complex contract call would most likely run out of gas and lose fees unnoticed.
+                throw IllegalStateException("Gas estimation failed for chain $chainType: ${e.message}")
             }
         } else {
             // Ensure both gas and gasLimit are set
@@ -328,15 +449,17 @@ class EthMiddleware(
 
         // Ensure chainId is in the transaction params for signing
         if (!txParams.has("chainId")) {
-            val chainId = chainType.evmChainId
-                ?: throw IllegalStateException("Chain ${chainType.name} does not have an EVM chainId")
+            val chainId =
+                chainType.evmChainId
+                    ?: throw IllegalStateException("Chain ${chainType.name} does not have an EVM chainId")
             txParams.put("chainId", "0x${chainId.toString(16)}")
             Log.d(TAG, "Added chainId to transaction: 0x${chainId.toString(16)} for chain: ${chainType.name}")
         }
 
         // Get private key
-        val privateKey = secretProvider.getPrivateKeyForAddress(from, origin)
-            ?: throw IllegalStateException("Failed to get private key")
+        val privateKey =
+            secretProvider.getPrivateKeyForAddress(from, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         // Sign transaction using WalletSdk
         val signedTx = WalletSdk.signEthTransaction(privateKey, txParams)
@@ -347,7 +470,10 @@ class EthMiddleware(
      * Handle eth_sendTransaction RPC call
      * Signs and sends a transaction. [origin] must be non-blank (DApp origin).
      */
-    override suspend fun sendTransaction(txParams: JSONObject, origin: String): String {
+    override suspend fun sendTransaction(
+        txParams: JSONObject,
+        origin: String
+    ): String {
         require(origin.isNotBlank()) { "origin must not be blank for sendTransaction" }
         val result = signTransaction(txParams, origin)
         val hash = nodeProvider.broadcastTransaction(result.data, result.chain)
@@ -404,8 +530,9 @@ class EthMiddleware(
         }
 
         // Request user confirmation
-        val provider = chainProvider
-            ?: throw IllegalStateException("ChainProvider not set")
+        val provider =
+            chainProvider
+                ?: throw IllegalStateException("ChainProvider not set")
 
         val confirmed = provider.requestChainSwitch(currentChain, targetChain, origin)
 

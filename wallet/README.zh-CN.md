@@ -36,6 +36,12 @@ WalletSdk.start()
 该 SDK 通过隐藏 WebView 调用钱包 JS 能力。
 接入方通常只需要在首次使用前调用 `initialize(context)`。
 
+进程退出或不再使用钱包能力时，调用 `WalletSdk.destroy()` 释放 wallet 门面。
+
+默认与 `DidSdk` 共享单个隐藏 WebView（`unified-bridge.html`）；`WalletSdk.destroy()` **不会**销毁该 WebView。进程退出前宿主应调用 `ToolkitBridgeRuntime.shutdown()`（ccdao：`WebviewBridge.shutdownSharedBridge()`）。钱包重置请用 `WebviewBridge.resetWalletAfterWipe(context)`，勿 shutdown 共享桥。
+
+首次 JS 调用时才 lazy 创建共享 WebView；`WalletSdk.initialize()` / `start()` 仅准备 Kotlin facade。
+
 ## 4. 测试
 
 ```bash

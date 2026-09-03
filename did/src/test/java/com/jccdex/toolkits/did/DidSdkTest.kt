@@ -606,7 +606,7 @@ class DidSdkTest {
                     DidStatResult::class.java
                 )
             } returns
-                DidStatResult(cid = "cid")
+                DidStatResult(cid = null)
             val store =
                 object : IDidStore {
                     override fun observeAll() = flowOf(emptyList<DidEntity>())
@@ -654,6 +654,79 @@ class DidSdkTest {
     }
 
     @Test
+    fun `uploadInitialDidDoc resolves when DID already exists on chain`() =
+        runTest {
+            coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
+                GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+            coEvery { bridge.callAs("didStat", any(), DidStatResult::class.java) } returns
+                DidStatResult(cid = "existing-cid")
+            val resolver = mockk<IDidResolver>(relaxed = true)
+            coEvery { resolver.resolve("did:ethr:0x123") } returns
+                """{"id":"did:ethr:0x123","updated":"2025-01-01T00:00:00Z"}"""
+            val store =
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
+
+                    override fun observe(did: String) = flowOf(null)
+
+                    override suspend fun get(did: String) = null
+
+                    override suspend fun upsert(entity: DidEntity) = Unit
+
+                    override suspend fun delete(did: String) = Unit
+                }
+            val sdkWithStore =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, resolver),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
+
+            assertThat(result).isTrue()
+            coVerify(exactly = 0) { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+            coVerify { resolver.resolve("did:ethr:0x123") }
+        }
+
+    @Test
+    fun `uploadInitialDidDoc refuses when didStat fails`() =
+        runTest {
+            mockkStatic(Log::class)
+            every { Log.e(any(), any(), any()) } returns 0
+            coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
+                GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+            coEvery { bridge.callAs("didStat", any(), DidStatResult::class.java) } throws
+                IllegalStateException("network down")
+            val store =
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
+
+                    override fun observe(did: String) = flowOf(null)
+
+                    override suspend fun get(did: String) = null
+
+                    override suspend fun upsert(entity: DidEntity) = Unit
+
+                    override suspend fun delete(did: String) = Unit
+                }
+            val sdkWithStore =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, mockk(relaxed = true)),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            // M-DID3: cannot confirm the DID does not exist → refuse to publish.
+            val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
+
+            assertThat(result).isFalse()
+            coVerify(exactly = 0) { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+        }
+
+    @Test
     fun `uploadInitialDidDoc ensures empty credentials array in published document`() =
         runTest {
             val publishParamsSlot = slot<String>()
@@ -679,7 +752,7 @@ class DidSdkTest {
                     any(),
                     DidStatResult::class.java
                 )
-            } returns DidStatResult(cid = "cid")
+            } returns DidStatResult(cid = null)
             val store = MemoryDidStore()
             val sdkWithStore =
                 DidSdk(
@@ -921,6 +994,35 @@ class DidSdkTest {
             assertThat(result).isTrue()
             assertThat(store.get(did)?.doc).contains("\"nickname\":\"bob\"")
             assertThat(store.get(did)?.doc).contains("\"previousCid\":\"cid-1\"")
+        }
+
+    @Test
+    fun `updateDidNickname aborts when chain resolve fails`() =
+        runTest {
+            // M-DID2: a failed chain resolve must abort the write, not fall back to a stale local doc.
+            mockkStatic(Log::class)
+            every { Log.e(any(), any(), any()) } returns 0
+            val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+            val store = MemoryDidStore()
+            store.upsert(
+                DidEntity(
+                    did = did,
+                    doc = """{"service":[],"updated":"2025-01-01T00:00:00Z"}""".trimIndent()
+                )
+            )
+            coEvery { bridge.call("didResolve", any()) } throws IllegalStateException("network down")
+            val localSdk =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, mockk(relaxed = true)),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            val result = localSdk.updateDidNickname("secret", did, "bob", "")
+
+            assertFalse(result)
+            coVerify(exactly = 0) { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
         }
 
     @Test
@@ -1237,10 +1339,11 @@ class DidSdkTest {
         }
 
     @Test
-    fun `generateProfileVC fetches remote nft metadata when needed`() =
+    fun `generateProfileVC warms remote nft metadata when uri is present`() =
         runTest {
             val nftSdk = mockk<NftSdk>()
             coEvery { nftSdk.fetchAndCacheNftMeta(any(), any(), any()) } returns null
+            coEvery { nftSdk.resolveCredentialImage(any(), any()) } returns null
             val store =
                 object : IDidStore {
                     override fun observeAll() = flowOf(emptyList<DidEntity>())
@@ -1676,6 +1779,76 @@ class DidSdkTest {
         }
 
     @Test
+    fun `verifyCredential returns false for malformed expirationDate`() =
+        runTest {
+            // M-DID6: a malformed date cannot be verified → fail closed, not treated as unexpired.
+            val malformed =
+                """
+                {
+                  "id":"did:ethr:0x123#nft-0xabc-1-did:ethr:0x123",
+                  "type":["VerifiableCredential","NFTOwnership"],
+                  "expirationDate":"not-a-date"
+                }
+                """.trimIndent()
+
+            val result = sdk.verifyCredential(malformed)
+
+            assertFalse(result.verified)
+            coVerify(exactly = 0) { bridge.call("verifyCredential", any()) }
+        }
+
+    @Test
+    fun `verifyCredential marks unknown when grantee owner doc fetch fails`() =
+        runTest {
+            // M-DID1: transient owner-doc fetch failure is "unknown", not "revoked".
+            coEvery { coreService.resolveAndSaveDid(any()) } returns null
+            coEvery { coreService.getDidDocument(any()) } returns null
+            val authCredential =
+                """
+                {
+                  "id":"did:ethr:0x123#nft-0xabc-1-did:ethr:0x123",
+                  "type":["VerifiableCredential","NFTUsageAuthorization"],
+                  "credentialSubject":{"id":"did:ethr:0x123"}
+                }
+                """.trimIndent()
+
+            val result = sdk.verifyCredential(authCredential)
+
+            assertFalse(result.verified)
+            assertTrue(result.unknown)
+        }
+
+    @Test
+    fun `queryAndValidateVcid marks unknown when credential verify cannot fetch owner doc`() =
+        runTest {
+            val ownerDid = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
+            val vcid = "$ownerDid#nft-0xabc-1-$ownerDid"
+            val authCredential =
+                """
+                {
+                  "id":"$vcid",
+                  "type":["VerifiableCredential","NFTUsageAuthorization"],
+                  "credentialSubject":{"id":"$ownerDid"}
+                }
+                """.trimIndent()
+            val ownerDoc = """{"credentials":[$authCredential]}"""
+            coEvery { coreService.resolveAndSaveDid(ownerDid) } returns null
+            // First get: locate credential; second get (grantee check): fetch fails → unknown.
+            coEvery { coreService.getDidDocument(ownerDid) } returnsMany
+                listOf(
+                    DidEntity(did = ownerDid, doc = ownerDoc),
+                    null
+                )
+
+            val result = sdk.queryAndValidateVcid(vcid)
+
+            assertFalse(result.isValid)
+            assertTrue(result.unknown)
+            assertEquals(vcid, JSONObject(result.credential.orEmpty()).optString("id"))
+            coVerify(exactly = 0) { bridge.call("verifyCredential", any()) }
+        }
+
+    @Test
     fun `buildGenerateVcParams includes usage authorization context type`() {
         val did = "did:ethr:0x1234567890abcdef1234567890abcdef12345678"
         val params =
@@ -1982,8 +2155,42 @@ class DidSdkTest {
                     """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
             coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
 
-            val result = sdk.signCredentialForDApp("pk", payload)
+            val result = sdk.signCredentialForDApp("pk", payload, onConfirm = { true })
 
             assertEquals("""{"signed":true}""", result)
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects without confirm callback`() =
+        runTest {
+            // H-DID1: fail closed when no host confirmation callback is provided.
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
+
+            val ex =
+                assertThrows(IllegalStateException::class.java) {
+                    runBlocking { sdk.signCredentialForDApp("pk", payload) }
+                }
+            assertTrue(ex.message!!.contains("host confirmation"))
+            coVerify(exactly = 0) { bridge.call("signCredential", any()) }
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects when confirm returns false`() =
+        runTest {
+            // H-DID1: host declines → refuse to sign.
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
+
+            val ex =
+                assertThrows(IllegalStateException::class.java) {
+                    runBlocking { sdk.signCredentialForDApp("pk", payload, onConfirm = { false }) }
+                }
+            assertTrue(ex.message!!.contains("host confirmation"))
+            coVerify(exactly = 0) { bridge.call("signCredential", any()) }
         }
 }

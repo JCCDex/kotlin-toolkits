@@ -1,5 +1,10 @@
 package com.jccdex.toolkits.dappconnect
 
+import android.webkit.WebMessagePort
+import android.webkit.WebView
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Test
@@ -7,11 +12,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
 class NativeResponseChannelTest {
-
     @Test
     fun successPayload_putsQuotedSafeNonceAndStringResult() {
         val malicious = """abc");alert(1);//"""
@@ -20,7 +25,6 @@ class NativeResponseChannelTest {
 
         assertEquals(malicious, obj.getString("nonce"))
         assertEquals("0x123", obj.getString("result"))
-        // JSON encoding must escape quotes — not raw JS injection.
         assertTrue(json.contains("\\\""))
         assertFalse(json.contains(""":"abc");alert"""))
     }
@@ -53,5 +57,46 @@ class NativeResponseChannelTest {
     @Test
     fun handshakeConstant_matchesProviderContract() {
         assertEquals("__CCDAO_NATIVE_PORT__", NativeResponseChannel.HANDSHAKE)
+    }
+
+    @Test
+    fun pendingQueue_capsAtMaxAndDropsOldest() {
+        val webView = mockk<WebView>(relaxed = true)
+        val port = mockk<WebMessagePort>(relaxed = true)
+        every { webView.createWebMessageChannel() } returns arrayOf(port, port)
+        val channel = NativeResponseChannel(webView)
+
+        repeat(105) { channel.sendSuccess("nonce-$it", "r$it") }
+
+        channel.install()
+
+        verify(exactly = 100) { port.postMessage(any()) }
+    }
+
+    @Test
+    fun handshakeTargetOrigin_usesWildcardForWebViewCompatibility() {
+        val webView = mockk<WebView>(relaxed = true)
+        every { webView.url } returns "https://app.jdid.cn/#/home"
+        val channel = NativeResponseChannel(webView)
+
+        assertEquals("*", channel.handshakeTargetOrigin())
+    }
+
+    @Test
+    fun resolveStrictTargetOrigin_normalizesPageUrl() {
+        val webView = mockk<WebView>(relaxed = true)
+        every { webView.url } returns "https://example.com/dapp/page"
+        val channel = NativeResponseChannel(webView)
+
+        assertEquals("https://example.com", channel.resolveStrictTargetOrigin())
+    }
+
+    @Test
+    fun resolveStrictTargetOrigin_nullForNonHttpUrl() {
+        val webView = mockk<WebView>(relaxed = true)
+        every { webView.url } returns "file:///android_asset/index.html"
+        val channel = NativeResponseChannel(webView)
+
+        assertNull(channel.resolveStrictTargetOrigin())
     }
 }

@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.did.util
 
+import com.jccdex.toolkits.core.encoding.toHex
 import org.bouncycastle.jcajce.provider.digest.Keccak
 import java.util.Locale
 
@@ -13,7 +14,7 @@ object ChecksumUtils {
         val digest = Keccak.Digest256()
         val input = lower.toByteArray(Charsets.US_ASCII)
         digest.update(input, 0, input.size)
-        val hashHex = bytesToHex(digest.digest())
+        val hashHex = digest.digest().toHex()
 
         val result = StringBuilder(42)
         result.append("0x")
@@ -31,16 +32,5 @@ object ChecksumUtils {
             }
         }
         return result.toString()
-    }
-
-    private fun bytesToHex(bytes: ByteArray): String {
-        val hexChars = "0123456789abcdef".toCharArray()
-        val sb = StringBuilder(bytes.size * 2)
-        for (b in bytes) {
-            val v = b.toInt() and 0xFF
-            sb.append(hexChars[v ushr 4])
-            sb.append(hexChars[v and 0x0F])
-        }
-        return sb.toString()
     }
 }

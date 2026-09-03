@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.wallet.model
 
+import com.jccdex.toolkits.core.model.Path
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 
@@ -64,5 +65,57 @@ class WalletModelsTest {
         assertThat(minimal.secret).isNull()
         assertThat(minimal.path).isNull()
         assertThat(full).isNotEqualTo(minimal)
+    }
+
+    @Test
+    fun toString_masksSensitiveFields() {
+        assertThat(Keypair("secret-key-value-123", "pub").toString())
+            .doesNotContain("secret-key-value-123")
+            .contains("pub")
+        assertThat(Mnemonic("secret-mnemonic-words", "english").toString())
+            .doesNotContain("secret-mnemonic-words")
+            .contains("english")
+
+        val subKey = "secret-sub-key-456"
+        val hd =
+            GenerateHDWalletResult(
+                mnemonic = "secret-mnemonic-value",
+                address = "root",
+                language = "english",
+                keypair = Keypair("secret-key-value-123", "pub"),
+                accounts =
+                    listOf(
+                        SubWallet(
+                            chain = 1L,
+                            address = "sub-addr",
+                            path = Path(chain = 1L, index = 2),
+                            keypair = Keypair(subKey, "sub-pub")
+                        )
+                    )
+            )
+        assertThat(hd.toString())
+            .doesNotContain("secret-mnemonic-value")
+            .doesNotContain("secret-key-value-123")
+            .doesNotContain(subKey)
+
+        val trad =
+            TraditionalDeriveResult(
+                address = "addr",
+                keypair = Keypair("secret-key-value-123", "pub"),
+                secret = "secret-secret-value",
+                sourcePrivateKey = "secret-source-value"
+            )
+        assertThat(trad.toString())
+            .doesNotContain("secret-secret-value")
+            .doesNotContain("secret-source-value")
+            .doesNotContain("secret-key-value-123")
+    }
+
+    @Test
+    fun toString_masking_doesNotAffectEqualityOrHashCode() {
+        val a = Keypair("priv", "pub")
+        val b = Keypair("priv", "pub")
+        assertThat(a).isEqualTo(b)
+        assertThat(a.hashCode()).isEqualTo(b.hashCode())
     }
 }

@@ -13,7 +13,7 @@ JCCDex / CCDAO 的 Android Kotlin 共通工具库：账户元数据、加密密�
 | `:core` | 共享领域模型（`ChainType`、`Path`、`WalletAccount`） | 模型类 |
 | `:account` | 钱包账户元数据（Room：`ccdao_accounts.db`） | `AccountSdk` |
 | `:vault` | 加密密钥库（DataStore + Protobuf + Tink） | `VaultRepository` |
-| `:webview-bridge` | 隐藏 WebView 运行时与 JS 资产宿主 | `WebviewBridgeEngine` |
+| `:webview-bridge` | 隐藏 WebView 运行时与 JS 资产宿主 | `WebviewBridgeClient` |
 | `:wallet` | 助记词 / 派生 / 签名（经隐藏 WebView） | `WalletSdk` |
 | `:nft` | NFT 元数据缓存、头像解析、远端图片规范化 | `NftSdk` |
 | `:did` | DID 文档、凭证签发/验证/绑定、头像 VCID | `DidSdk` |
@@ -254,8 +254,8 @@ val tokenUri = client.resolveEthrTokenUri(
 
 ### 4.4 WebView 与密钥
 
-- Wallet / DID 双 Runtime，分别初始化。
-- 私钥、助记词会以参数进入 JS：禁止 log、及时 `destroy`、不要把 debug WebView 留给生产。
+- Wallet / DID 默认共享单个 `SharedWebviewBridge`（`unified-bridge.html`）；legacy 单域页面 `wallet-bridge.html` / `did-bridge.html` 仍可用于测试注入。
+- 私钥、助记词会以参数进入 JS：禁止 log、进程退出前调用 `ToolkitBridgeRuntime.shutdown()`；`WalletSdk.destroy()` 仅释放 wallet 门面。不要把 debug WebView 留给生产。
 - 自定义 `IDidBridge` 时仍须在主线程创建 WebView。
 
 ### 4.5 模型包名

@@ -1,22 +1,39 @@
 package com.jccdex.toolkits.did.service
 
+import android.util.Log
 import com.jccdex.toolkits.did.model.DidEntity
 import com.jccdex.toolkits.did.store.IDidStore
+import com.jccdex.toolkits.did.util.DidDocumentReader
 import com.jccdex.toolkits.did.util.DidResolveUtils
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 class DidCoreService(
     private val store: IDidStore,
-    private val resolver: IDidResolver
+    private val resolver: IDidResolver,
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
-    private val pendingDeleteUpdated = ConcurrentHashMap<String, String>()
-    private val pendingCreateDids = ConcurrentHashMap.newKeySet<String>()
-    private val pendingUpdateAvatar = ConcurrentHashMap<String, String>()
-    private val pendingUpdateNickname = ConcurrentHashMap<String, String>()
+    /** Grace period during which a freshly created DID missing on-chain is kept locally (H-DID2). */
+    private companion object {
+        const val CREATE_GRACE_PERIOD_MS = 5 * 60_000L
+
+        // L-8: Stale entry cleanup threshold (1 hour)
+        const val STALE_ENTRY_THRESHOLD_MS = 60 * 60_000L
+        const val TAG = "DidCoreService"
+    }
+
+    // L-8: Pending entries with timestamp for stale cleanup
+    private data class PendingEntry(val value: String, val createdAt: Long)
+
+    private val pendingDeleteUpdated = ConcurrentHashMap<String, PendingEntry>()
+    private val pendingCreateDids = ConcurrentHashMap<String, Long>()
+    private val pendingUpdateAvatar = ConcurrentHashMap<String, PendingEntry>()
+    private val pendingUpdateNickname = ConcurrentHashMap<String, PendingEntry>()
 
     fun observeAll(): Flow<List<DidEntity>> = store.observeAll()
 
@@ -24,51 +41,64 @@ class DidCoreService(
 
     suspend fun resolveAndSaveDid(did: String): String? {
         return withContext(Dispatchers.IO) {
+            // L-8: Periodic cleanup of stale pending entries
+            cleanupStaleEntries()
+
             val localDoc = store.get(did)
             try {
                 val chainDoc = resolver.resolve(did)
 
                 if (DidResolveUtils.isMissingDidDocument(chainDoc)) {
+                    Log.w("DidCoreService", "resolveAndSaveDid: chain document considered missing for $did")
                     return@withContext handleMissingChainDocument(did, localDoc)
                 }
 
                 if (chainDoc.isNotBlank()) {
+                    val chainUpdated = extractUpdated(chainDoc)
+                    val deletedTimestamp = pendingDeleteUpdated[did]?.value
+
+                    // H-DID3: during delete confirmation (chain still carries the version we deleted),
+                    // never backfill it — keep the local deleted state.
+                    if (chainUpdated != null && chainUpdated == deletedTimestamp) {
+                        pendingDeleteUpdated.remove(did)
+                        return@withContext null
+                    }
+
                     if (localDoc == null) {
                         store.upsert(DidEntity(did = did, doc = chainDoc))
                         return@withContext chainDoc
                     }
 
                     val localUpdated = extractUpdated(localDoc.doc)
-                    val chainUpdated = extractUpdated(chainDoc)
 
-                    val deletedTimestamp = pendingDeleteUpdated[did]
-                    if (chainUpdated != null && chainUpdated == deletedTimestamp) {
-                        pendingDeleteUpdated.remove(did)
-                        return@withContext localDoc.doc
-                    }
-
-                    val pendingAvatar = pendingUpdateAvatar[did]
+                    val pendingAvatar = pendingUpdateAvatar[did]?.value
                     if (pendingAvatar != null) {
-                        val chainAvatar = readProfileField(chainDoc, "preferredAvatar")
+                        val chainAvatar = DidDocumentReader.readProfileField(chainDoc, "preferredAvatar")
                         if (chainAvatar != pendingAvatar) return@withContext localDoc.doc
                         pendingUpdateAvatar.remove(did)
                     }
 
-                    val pendingNickname = pendingUpdateNickname[did]
+                    val pendingNickname = pendingUpdateNickname[did]?.value
                     if (pendingNickname != null) {
-                        val chainNickname = readProfileField(chainDoc, "nickname")
+                        val chainNickname = DidDocumentReader.readProfileField(chainDoc, "nickname")
                         if (chainNickname != pendingNickname) return@withContext localDoc.doc
                         pendingUpdateNickname.remove(did)
                     }
 
-                    if (chainUpdated != null && (localUpdated == null || chainUpdated > localUpdated)) {
+                    // L-12: Compare timestamps as Instant, not strings. Fallback to string comparison if parse fails.
+                    if (chainUpdated != null &&
+                        (localUpdated == null || isTimestampAfter(chainUpdated, localUpdated))
+                    ) {
                         store.upsert(localDoc.copy(doc = chainDoc, updatedAt = System.currentTimeMillis()))
                         return@withContext chainDoc
                     }
 
                     return@withContext localDoc.doc
                 }
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "resolveAndSaveDid failed for $did", e)
             }
             return@withContext null
         }
@@ -78,10 +108,12 @@ class DidCoreService(
         did: String,
         localDoc: DidEntity?
     ): String? {
-        if (pendingCreateDids.contains(did)) {
-            pendingCreateDids.remove(did)
+        val createdAt = pendingCreateDids[did]
+        if (createdAt != null && clock() - createdAt < CREATE_GRACE_PERIOD_MS) {
+            // Chain propagation still in progress: keep the local doc, don't delete.
             return localDoc?.doc
         }
+        pendingCreateDids.remove(did)
         store.delete(did)
         return null
     }
@@ -94,7 +126,7 @@ class DidCoreService(
     ) {
         deletedDoc?.let { doc ->
             extractUpdated(doc)?.let { updated ->
-                pendingDeleteUpdated[did] = updated
+                pendingDeleteUpdated[did] = PendingEntry(updated, clock())
             }
         }
         store.delete(did)
@@ -136,13 +168,18 @@ class DidCoreService(
         pendingType: PendingType
     ) {
         withContext(Dispatchers.IO) {
+            val now = clock()
             when (pendingType) {
-                PendingType.CREATE -> pendingCreateDids.add(did)
+                PendingType.CREATE -> pendingCreateDids[did] = now
                 PendingType.AVATAR -> {
-                    readProfileField(doc, "preferredAvatar")?.let { pendingUpdateAvatar[did] = it }
+                    DidDocumentReader.readProfileField(doc, "preferredAvatar")?.let {
+                        pendingUpdateAvatar[did] = PendingEntry(it, now)
+                    }
                 }
                 PendingType.NICKNAME -> {
-                    readProfileField(doc, "nickname")?.let { pendingUpdateNickname[did] = it }
+                    DidDocumentReader.readProfileField(doc, "nickname")?.let {
+                        pendingUpdateNickname[did] = PendingEntry(it, now)
+                    }
                 }
             }
             val entity = DidEntity(did = did, doc = doc, updatedAt = System.currentTimeMillis())
@@ -154,7 +191,10 @@ class DidCoreService(
         return try {
             val json = JSONObject(doc)
             json.optString("updated", "").ifBlank { null }
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "extractUpdated failed", e)
             null
         }
     }
@@ -165,23 +205,28 @@ class DidCoreService(
         NICKNAME
     }
 
-    private fun readProfileField(
-        doc: String,
-        key: String
-    ): String? {
+    // L-12: Compare timestamps as Instant, fallback to string comparison if parse fails.
+    private fun isTimestampAfter(
+        timestamp1: String,
+        timestamp2: String
+    ): Boolean {
         return try {
-            val root = JSONObject(doc)
-            val services = root.optJSONArray("service") ?: root.optJSONArray("services") ?: return null
-            for (i in 0 until services.length()) {
-                val service = services.optJSONObject(i) ?: continue
-                if (service.optString("type") != "Profile") continue
-                val endpoint = service.optJSONObject("serviceEndpoint") ?: continue
-                val value = endpoint.optString(key, "")
-                if (value.isNotBlank()) return value
-            }
-            null
+            val instant1 = Instant.parse(timestamp1)
+            val instant2 = Instant.parse(timestamp2)
+            instant1.isAfter(instant2)
         } catch (_: Exception) {
-            null
+            timestamp1 > timestamp2
         }
+    }
+
+    // L-8: Clean up stale pending entries older than STALE_ENTRY_THRESHOLD_MS
+    private fun cleanupStaleEntries() {
+        val now = clock()
+        val threshold = STALE_ENTRY_THRESHOLD_MS
+
+        pendingCreateDids.entries.removeIf { now - it.value > threshold }
+        pendingDeleteUpdated.entries.removeIf { now - it.value.createdAt > threshold }
+        pendingUpdateAvatar.entries.removeIf { now - it.value.createdAt > threshold }
+        pendingUpdateNickname.entries.removeIf { now - it.value.createdAt > threshold }
     }
 }

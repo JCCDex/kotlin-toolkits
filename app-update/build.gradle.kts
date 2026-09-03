@@ -29,10 +29,13 @@ android {
 
 dependencies {
     implementation(project(":apk-verify"))
+    implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
     testImplementation(kotlin("test"))
 }

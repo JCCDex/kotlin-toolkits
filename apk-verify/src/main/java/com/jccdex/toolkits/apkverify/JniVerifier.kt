@@ -1,5 +1,7 @@
 package com.jccdex.toolkits.apkverify
 
+import android.util.Log
+import com.jccdex.toolkits.core.security.SecureCompare
 import java.io.File
 
 /**
@@ -10,15 +12,29 @@ import java.io.File
  * Otherwise falls back to pure Java.
  */
 object JniVerifier {
+    private const val TAG = "JniVerifier"
+
     /** Whether [libintegrity.so] was loaded successfully. */
     private val nativeAvailable: Boolean =
         runCatching {
             System.loadLibrary("integrity")
             true
-        }.getOrDefault(false)
+        }.getOrDefault(false).also { available ->
+            if (!available) {
+                // M-W1: fail loudly instead of silently degrading — callers must know hashes are
+                // no longer computed/compared in native. Best-effort: plain-JVM unit tests stub Log.
+                runCatching {
+                    Log.e(
+                        TAG,
+                        "libintegrity.so failed to load — hash compute/compare degrades to pure Java"
+                    )
+                }
+            }
+        }
 
     /**
-     * Compares two hex hash strings case-insensitively.
+     * Compares two hex hash strings. Uses native constant-time comparison when available,
+     * otherwise a constant-time Java fallback (M-W1: no timing side-channel, no ignoreCase).
      */
     fun hashEquals(
         a: String?,
@@ -28,7 +44,7 @@ object JniVerifier {
         return if (nativeAvailable) {
             nativeHashEquals(a, b)
         } else {
-            a.equals(b, ignoreCase = true)
+            constantTimeHexEquals(a, b)
         }
     }
 
@@ -43,6 +59,12 @@ object JniVerifier {
         }
         return ApkDigest.sha256Hex(file)
     }
+
+    /** Constant-time comparison of two hex strings (M-W1/C-13): converges to core [SecureCompare]. */
+    private fun constantTimeHexEquals(
+        a: String,
+        b: String
+    ): Boolean = SecureCompare.constantTimeHexEquals(a, b)
 
     private external fun nativeComputeSha256(filePath: String): String?
 

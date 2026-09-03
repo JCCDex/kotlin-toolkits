@@ -27,7 +27,6 @@ import kotlinx.coroutines.sync.withLock
 class CachingSecretProvider(
     private val delegate: SecretProvider
 ) : SecretProvider {
-
     companion object {
         private const val BRIDGE_MS = 5_000L
         private const val MAX_AGE_MS = 20_000L
@@ -56,7 +55,11 @@ class CachingSecretProvider(
         activeOps = (activeOps - 1).coerceAtLeast(0)
         if (activeOps == 0) {
             clearJob?.cancel()
-            clearJob = scope.launch { delay(BRIDGE_MS); cache.clear() }
+            clearJob =
+                scope.launch {
+                    delay(BRIDGE_MS)
+                    cache.clear()
+                }
         }
     }
 
@@ -77,7 +80,10 @@ class CachingSecretProvider(
         clearJob = null
     }
 
-    override suspend fun getPrivateKeyForAddress(address: String, origin: String): String? {
+    override suspend fun getPrivateKeyForAddress(
+        address: String,
+        origin: String
+    ): String? {
         val cacheKey = "$PRIVATE_KEY_PREFIX$origin|$address"
         return privateKeyMutex.withLock {
             cached(cacheKey)?.let { return it }
@@ -93,7 +99,10 @@ class CachingSecretProvider(
         }
     }
 
-    override suspend fun getSecretForAddress(address: String, origin: String): String? {
+    override suspend fun getSecretForAddress(
+        address: String,
+        origin: String
+    ): String? {
         val cacheKey = "$SECRET_PREFIX$origin|$address"
         return secretMutex.withLock {
             cached(cacheKey)?.let { return it }

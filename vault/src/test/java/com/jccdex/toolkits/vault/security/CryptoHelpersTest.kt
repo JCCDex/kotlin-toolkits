@@ -2,9 +2,9 @@ package com.jccdex.toolkits.vault.security
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.core.security.wipe
 import com.jccdex.toolkits.vault.Vault
 import com.jccdex.toolkits.vault.serializer.VaultSerializer
-import com.jccdex.toolkits.vault.util.wipe
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test

@@ -241,6 +241,19 @@ class RoomAccountStoreTest {
         }
 
     @Test
+    fun subHDAccounts_includesDerivedWithoutParentId() =
+        runTest {
+            val root = AccountTestFixtures.hdRoot(id = "r1", address = "jRoot1")
+            val derived = AccountTestFixtures.hdDerivedWithoutParent(id = "d1", address = "0xderived", index = 2)
+            store.addAccount(root)
+            store.addAccount(derived)
+
+            assertThat(store.rootHDAccounts.first().map { it.id }).containsExactly(root.id)
+            assertThat(store.subHDAccounts.first().map { it.id }).containsExactly(derived.id)
+            assertThat(derived.isSubHD()).isTrue()
+        }
+
+    @Test
     fun findRootAccountByAddress() =
         runTest {
             val root = AccountTestFixtures.hdRoot(id = "root-id", address = "jRootAddr")
@@ -275,6 +288,16 @@ class RoomAccountStoreTest {
             assertThat(store.findNonRootAccount("jRoot", ChainType.SWTC)).isNull()
             assertThat(store.findNonRootAccount("0xsub", ChainType.ETH)?.id).isEqualTo(sub.id)
             assertThat(store.findNonRootAccount("0xtrad", ChainType.ETH)?.id).isEqualTo(trad.id)
+        }
+
+    @Test
+    fun findNonRootAccount_hdDerivedWithoutParentId() =
+        runTest {
+            val derived = AccountTestFixtures.hdDerivedWithoutParent(address = "0xderived", index = 2)
+            store.addAccount(derived)
+
+            assertThat(store.findNonRootAccount("0xderived", ChainType.ETH)?.id).isEqualTo(derived.id)
+            assertThat(store.findRootAccountByAddress("0xderived")).isNull()
         }
 
     @Test

@@ -91,6 +91,8 @@ val jacocoClassExcludes =
     )
 
 val coverageModules = listOf("core", "account", "vault", "webview-bridge", "did", "nft", "wallet")
+// dapp-connect is gated for style but kept out of jacoco coverageModules (follow-up #2).
+val ktlintModules = coverageModules + listOf("dapp-connect")
 val coverageModuleProjects = coverageModules.map { project(":$it") }
 
 coverageModules.forEach { moduleName ->
@@ -182,12 +184,12 @@ tasks.register<JacocoReport>("jacocoAllModulesReport") {
 tasks.register("ktlintCheckAll") {
     group = "verification"
     description = "Run ktlint checks for all kotlin-toolkits modules"
-    dependsOn(coverageModules.map { ":$it:ktlintCheck" })
+    dependsOn(ktlintModules.map { ":$it:ktlintCheck" })
 }
 
 tasks.register("ktlintFormatAll") {
     group = "formatting"
     description = "Auto-format Kotlin code with ktlint for all kotlin-toolkits modules"
-    dependsOn(coverageModules.map { ":$it:ktlintFormat" })
+    dependsOn(ktlintModules.map { ":$it:ktlintFormat" })
 }
 

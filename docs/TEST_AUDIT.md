@@ -229,10 +229,12 @@
 
 | 测试类 | 覆盖对象 |
 |--------|----------|
-| `WebviewBridgeEngineTest` | 引擎单例、asset URL |
-| `WebviewBridgeClientTest` | 初始化、JS 调用 payload |
+| `WebviewBridgeClientTest` | 初始化、JS 调用 payload、bridge 页校验 |
 | `WebviewBridgeClientBehaviorTest` | 线程安全、超时、并发调用（17 用例） |
-| `JsPromiseGatewayTest` | Promise 回调网关 |
+| `PromiseGatewayImplTest` | Promise 回调网关（实例级） |
+| `SharedWebviewBridgeTest` | 共享 singleton、unified 页、reload |
+| `UnifiedBridgeClientTest` | unified 页加载、wallet+did 双方法 dispatch |
+| `ToolkitBridgeRuntimeTest` | shutdown / reload 公共生命周期 |
 
 **优点：**
 

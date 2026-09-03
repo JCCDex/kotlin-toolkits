@@ -25,6 +25,7 @@ object WalletSdk {
         bridgeOrThrow().start()
     }
 
+    /** Clears the wallet facade. Does not destroy the shared bridge; use [com.jccdex.toolkits.webviewbridge.ToolkitBridgeRuntime.shutdown]. */
     fun destroy() {
         bridge?.destroy()
         bridge = null
@@ -53,20 +54,30 @@ object WalletSdk {
     suspend fun validateMnemonic(
         mnemonic: String,
         language: String = "english"
-    ): Boolean =
-        callJsMethod(
-            "validateMnemonic",
-            JSONObject().apply {
-                put("mnemonic", mnemonic)
-                put("language", language)
-            }
-        ).toBoolean()
+    ): Boolean {
+        val result =
+            callJsMethod(
+                "validateMnemonic",
+                JSONObject().apply {
+                    put("mnemonic", mnemonic)
+                    put("language", language)
+                }
+            )
+        return parseBooleanOrThrow(result, "validateMnemonic")
+    }
+
+    // L-19: BIP-39 entropy length must be one of 128, 160, 192, 224, or 256 bits.
+    // https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki
+    private val VALID_MNEMONIC_LENGTHS = setOf(128, 160, 192, 224, 256)
 
     suspend fun generateMnemonic(
         length: Int = 128,
         language: String = "english"
-    ): Mnemonic =
-        parse(
+    ): Mnemonic {
+        require(length in VALID_MNEMONIC_LENGTHS) {
+            "Invalid mnemonic length: $length. Must be one of $VALID_MNEMONIC_LENGTHS"
+        }
+        return parse(
             callJsMethod(
                 "generateMnemonic",
                 JSONObject().apply {
@@ -75,6 +86,7 @@ object WalletSdk {
                 }
             )
         )
+    }
 
     suspend fun deriveChild(
         mnemonic: String,
@@ -149,14 +161,17 @@ object WalletSdk {
     suspend fun validatePrivateKey(
         privateKey: String,
         chain: Long
-    ): Boolean =
-        callJsMethod(
-            "validatePrivateKey",
-            JSONObject().apply {
-                put("privateKey", privateKey)
-                put("chain", chain)
-            }
-        ).toBoolean()
+    ): Boolean {
+        val result =
+            callJsMethod(
+                "validatePrivateKey",
+                JSONObject().apply {
+                    put("privateKey", privateKey)
+                    put("chain", chain)
+                }
+            )
+        return parseBooleanOrThrow(result, "validatePrivateKey")
+    }
 
     suspend fun buildSwtcPayment(
         address: String,
@@ -240,11 +255,14 @@ object WalletSdk {
             }
         )
 
-    suspend fun isValidAddress(address: String): Boolean =
-        callJsMethod(
-            "isValidAddress",
-            JSONObject().apply { put("address", address) }
-        ).toBoolean()
+    suspend fun isValidAddress(address: String): Boolean {
+        val result =
+            callJsMethod(
+                "isValidAddress",
+                JSONObject().apply { put("address", address) }
+            )
+        return parseBooleanOrThrow(result, "isValidAddress")
+    }
 
     suspend fun signMessage(
         address: String,
@@ -370,4 +388,20 @@ object WalletSdk {
         bridge ?: throw IllegalStateException("WalletSdk is not initialized. Call initialize(context) first.")
 
     private inline fun <reified T> parse(raw: String): T = gson.fromJson(raw, T::class.java)
+
+    // L-16: .toBoolean() silently returns false for any non-"true" string.
+    // This helper parses JS boolean responses explicitly and throws on unexpected format.
+    private fun parseBooleanOrThrow(
+        raw: String,
+        method: String
+    ): Boolean {
+        val trimmed = raw.trim()
+        return when (trimmed) {
+            "true" -> true
+            "false" -> false
+            else -> throw IllegalStateException(
+                "Unexpected JS response from $method: expected 'true' or 'false', got: $trimmed"
+            )
+        }
+    }
 }

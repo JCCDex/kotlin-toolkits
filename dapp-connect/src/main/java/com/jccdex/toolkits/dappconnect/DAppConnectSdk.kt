@@ -20,9 +20,10 @@ import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import com.jccdex.toolkits.did.sdk.DidSdk
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
 import java.io.ByteArrayOutputStream
+import java.net.URI
+import java.util.Locale
 
 object DAppConnectSdk {
-
     private var didSdk: DidSdk? = null
 
     fun initialize(context: Context) {
@@ -51,23 +52,25 @@ object DAppConnectSdk {
         nodeProvider: NodeProvider,
         chainProvider: ChainProvider? = null,
         initialChain: ChainType = ChainType.BSC
-    ): EthMiddleware = EthMiddleware(
-        accountProvider = accountProvider,
-        secretProvider = secretProvider,
-        nodeProvider = nodeProvider,
-        chainProvider = chainProvider,
-        initialChain = initialChain
-    )
+    ): EthMiddleware =
+        EthMiddleware(
+            accountProvider = accountProvider,
+            secretProvider = secretProvider,
+            nodeProvider = nodeProvider,
+            chainProvider = chainProvider,
+            initialChain = initialChain
+        )
 
     fun createSwtcMiddleware(
         accountProvider: AccountProvider,
         secretProvider: SecretProvider,
         nodeProvider: NodeProvider
-    ): SwtcMiddleware = SwtcMiddleware(
-        accountProvider = accountProvider,
-        secretProvider = secretProvider,
-        nodeProvider = nodeProvider
-    )
+    ): SwtcMiddleware =
+        SwtcMiddleware(
+            accountProvider = accountProvider,
+            secretProvider = secretProvider,
+            nodeProvider = nodeProvider
+        )
 
     // ── WebAppInterface factory ──
 
@@ -98,7 +101,10 @@ object DAppConnectSdk {
     }
 
     /** Build the init JS: set chainId, rpcUrl, and selected address in the provider */
-    fun loadInitJs(chainIdHex: String, rpcUrl: String): String {
+    fun loadInitJs(
+        chainIdHex: String,
+        rpcUrl: String
+    ): String {
         val qChain = jsQuote(chainIdHex)
         val qRpc = jsQuote(rpcUrl)
         return """
@@ -118,13 +124,19 @@ object DAppConnectSdk {
     }
 
     /** Build JS to update the selected address in the provider */
-    fun loadAddressJs(address: String, isSwtc: Boolean): String {
+    fun loadAddressJs(
+        address: String,
+        isSwtc: Boolean
+    ): String {
         val fn = if (isSwtc) "_updateSwtcSelectedAddress" else "_updateSelectedAddress"
         return "if (window.$fn) { window.$fn(${jsQuote(address)}); }"
     }
 
     /** Build JS to update chainId and trigger chainChanged event */
-    fun loadUpdateChainIdJs(chainIdHex: String, rpcUrl: String): String {
+    fun loadUpdateChainIdJs(
+        chainIdHex: String,
+        rpcUrl: String
+    ): String {
         return "if (window._updateChainId) { window._updateChainId(${jsQuote(chainIdHex)}, ${jsQuote(rpcUrl)}); }"
     }
 
@@ -173,26 +185,32 @@ object DAppConnectSdk {
     fun loadEip6963IconOverrideJs(iconDataUri: String): String {
         val escaped = iconDataUri.replace("\\", "\\\\").replace("'", "\\'")
         return """
-(function(){var i='$escaped';var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e.type==='eip6963:announceProvider'&&e.detail&&e.detail.info){var n={uuid:e.detail.info.uuid,name:e.detail.info.name,icon:i,rdns:e.detail.info.rdns};var ne=new CustomEvent('eip6963:announceProvider',{detail:{info:Object.freeze(n),provider:e.detail.provider}});o(ne);return true}return o(e)}})();
-        """.trimIndent()
+            (function(){var i='$escaped';var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e.type==='eip6963:announceProvider'&&e.detail&&e.detail.info){var n={uuid:e.detail.info.uuid,name:e.detail.info.name,icon:i,rdns:e.detail.info.rdns};var ne=new CustomEvent('eip6963:announceProvider',{detail:{info:Object.freeze(n),provider:e.detail.provider}});o(ne);return true}return o(e)}})();
+            """.trimIndent()
     }
 
     // ── URL safety ──
 
-    /** Validate that [url] uses http/https and a well-formed host. Blocks file://, javascript:, etc. */
+    /** Validate that [url] uses http/https and a well-formed host. Blocks file://, javascript:, ftp://, etc. */
     fun isSafeUrl(url: String): Boolean {
         val pattern =
             Regex(
                 "^(https?)://[a-zA-Z0-9][-a-zA-Z0-9]{0,62}(\\.[a-zA-Z0-9][-a-zA-Z0-9]{0,62})+\\.?(:[0-9]{1,5})?(/.*)?$",
                 RegexOption.IGNORE_CASE
             )
-        return pattern.matches(url) || android.util.Patterns.WEB_URL.matcher(url).matches()
+        if (pattern.matches(url)) return true
+        // WEB_URL 兜底仅收 http/https（拒绝 ftp/rtsp/file/data 等危险 scheme，M-D1）。
+        // scheme 短路在 WEB_URL 之前——非 http(s) 可在纯 JVM 判定，无需 Robolectric。
+        val scheme = runCatching { URI(url).scheme?.lowercase(Locale.ROOT) }.getOrNull()
+        return (scheme == "http" || scheme == "https") && android.util.Patterns.WEB_URL.matcher(url).matches()
     }
 
     // ── internal ──
 
-    private fun loadAssetAsString(resources: Resources, assetName: String): String =
-        resources.assets.open(assetName).bufferedReader().use { it.readText() }
+    private fun loadAssetAsString(
+        resources: Resources,
+        assetName: String
+    ): String = resources.assets.open(assetName).bufferedReader().use { it.readText() }
 
     /** Fallback SVG data URI — a "D" shield mark — when the drawable cannot be loaded. */
     private val FALLBACK_ICON_DATA_URI: String =

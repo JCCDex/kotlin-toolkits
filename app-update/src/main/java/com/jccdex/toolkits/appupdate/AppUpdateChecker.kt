@@ -2,10 +2,11 @@ package com.jccdex.toolkits.appupdate
 
 import com.jccdex.toolkits.apkverify.ReleaseChecksums
 import com.jccdex.toolkits.apkverify.ReleaseChecksumsParser
+import com.jccdex.toolkits.core.net.HttpFetcher
+import com.jccdex.toolkits.core.net.HttpResult
+import com.jccdex.toolkits.core.net.RedirectPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
 
 sealed class AppUpdateCheckResult {
     data class UpdateAvailable(
@@ -23,6 +24,19 @@ sealed class AppUpdateCheckResult {
 }
 
 object AppUpdateChecker {
+    private const val CONNECT_TIMEOUT_MS = 10_000
+    private const val READ_TIMEOUT_MS = 15_000
+    private const val MAX_METADATA_BYTES = 1 * 1024 * 1024
+
+    // C-2: HTTP converged to core HttpFetcher (same-host https redirects, 1MB metadata cap).
+    private val httpFetcher =
+        HttpFetcher(
+            connectTimeoutMs = CONNECT_TIMEOUT_MS,
+            readTimeoutMs = READ_TIMEOUT_MS,
+            maxResponseBytes = MAX_METADATA_BYTES,
+            redirectPolicy = RedirectPolicy.SAME_HOST_HTTPS
+        )
+
     fun evaluate(
         localVersionCode: Int,
         remote: ReleaseChecksums,
@@ -40,27 +54,18 @@ object AppUpdateChecker {
         apkDownloadUrl: String
     ): AppUpdateCheckResult =
         withContext(Dispatchers.IO) {
-            val text = fetchText(checksumsUrl)
-                ?: return@withContext AppUpdateCheckResult.Failed("Unable to fetch update metadata")
-            val remote = ReleaseChecksumsParser.parse(text)
-                ?: return@withContext AppUpdateCheckResult.Failed("Invalid update metadata")
+            val text =
+                fetchText(checksumsUrl)
+                    ?: return@withContext AppUpdateCheckResult.Failed("Unable to fetch update metadata")
+            val remote =
+                ReleaseChecksumsParser.parse(text)
+                    ?: return@withContext AppUpdateCheckResult.Failed("Invalid update metadata")
             evaluate(localVersionCode, remote, apkDownloadUrl)
         }
 
-    private fun fetchText(url: String): String? {
-        val connection = (URL(url).openConnection() as? HttpURLConnection) ?: return null
-        return try {
-            connection.requestMethod = "GET"
-            connection.connectTimeout = 10_000
-            connection.readTimeout = 15_000
-            connection.instanceFollowRedirects = true
-            connection.connect()
-            if (connection.responseCode !in 200..299) return null
-            connection.inputStream.bufferedReader().use { it.readText() }
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection.disconnect()
+    private fun fetchText(url: String): String? =
+        when (val result = httpFetcher.get(url)) {
+            is HttpResult.Success -> result.value
+            is HttpResult.Failure -> null
         }
-    }
 }

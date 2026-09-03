@@ -389,23 +389,28 @@
     }
   };
 
-  global.PromiseBridge = {
-    call: async function (method, params, id) {
-      try {
-        if (!method || typeof method !== "string") {
-          throw new Error("invalid method");
-        }
-        const fn = methods[method];
-        if (!fn) {
-          throw new Error("no such method: " + method);
-        }
+  if (typeof global.__installPromiseBridge === "function") {
+    Object.assign(global.__BridgeMethods, methods);
+    global.__installPromiseBridge();
+  } else {
+    global.PromiseBridge = {
+      call: async function (method, params, id) {
+        try {
+          if (!method || typeof method !== "string") {
+            throw new Error("invalid method");
+          }
+          const fn = methods[method];
+          if (!fn) {
+            throw new Error("no such method: " + method);
+          }
 
-        const result = await fn(params);
-        window.JSBridge.onPromiseResult(id, JSON.stringify({ result }));
-      } catch (e) {
-        const error = e && e.message ? e.message : String(e);
-        window.JSBridge.onPromiseResult(id, JSON.stringify({ error }));
+          const result = await fn(params);
+          window.JSBridge.onPromiseResult(id, JSON.stringify({ result }));
+        } catch (e) {
+          const error = e && e.message ? e.message : String(e);
+          window.JSBridge.onPromiseResult(id, JSON.stringify({ error }));
+        }
       }
-    }
-  };
+    };
+  }
 })(window);

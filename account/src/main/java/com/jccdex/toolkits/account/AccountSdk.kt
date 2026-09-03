@@ -9,12 +9,24 @@ import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.WalletAccount
 import com.jccdex.toolkits.vault.VaultRepository
 import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.ConcurrentHashMap
 
 class AccountSdk internal constructor(
     private val store: IAccountStore
 ) {
+    // M-19A: share one AccountOrchestrator (and its Mutex) per vault — a fresh instance per call
+    // would bypass the serialization protecting deriveSubAccount/removeAccount.
+    private val orchestrators = ConcurrentHashMap<VaultRepository, AccountOrchestrator>()
+
     fun orchestrator(vaultRepository: VaultRepository): AccountOrchestrator =
-        AccountOrchestrator(store, vaultRepository)
+        orchestrators.getOrPut(vaultRepository) { AccountOrchestrator(store, vaultRepository) }
+
+    /**
+     * M-13A: reconciliation — vault keys with no store account record (orphans from a crash or
+     * partial write). Non-destructive; hosts can surface or clean these up.
+     */
+    suspend fun listOrphanKeys(vaultRepository: VaultRepository): List<String> =
+        orchestrator(vaultRepository).listOrphanKeys()
 
     val accounts: Flow<List<WalletAccount>> get() = store.accounts
 

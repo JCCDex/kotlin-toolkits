@@ -82,6 +82,20 @@ class WalletModelsTest {
         assertTrue(traditional.isTraditional())
         assertFalse(traditional.isRootHD())
         assertFalse(traditional.isSubHD())
+        assertTrue(traditional.isNonRoot())
+
+        val hdNonRootPathNoParent =
+            WalletAccount(
+                address = "hd-path-only",
+                chain = ChainType.ETH,
+                isHD = true,
+                parentId = null,
+                path = Path(chain = ChainType.ETH.bip44Code, index = 1),
+                publicKey = "pk5"
+            )
+        assertTrue(hdNonRootPathNoParent.isSubHD())
+        assertFalse(hdNonRootPathNoParent.isRootHD())
+        assertTrue(hdNonRootPathNoParent.isNonRoot())
     }
 
     @Test

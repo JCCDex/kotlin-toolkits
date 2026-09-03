@@ -26,7 +26,10 @@ data class DidSyncEntry(
 )
 
 data class DidSyncResult(
-    val entries: List<DidSyncEntry>
+    val entries: List<DidSyncEntry>,
+    // M-DID7: number of accounts that failed per-account isolation (corrupt EVM address, resolve
+    // error). Default 0 keeps `DidSyncResult(entries)` source-compatible for hosts.
+    val failedCount: Int = 0
 ) {
     val addressesLower: Set<String> = entries.mapTo(linkedSetOf()) { it.addressLower }
 }

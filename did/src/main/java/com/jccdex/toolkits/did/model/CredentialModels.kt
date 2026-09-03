@@ -43,7 +43,9 @@ data class UnifiedNftCredentialData(
 
 data class CredentialVerificationResult(
     val verified: Boolean,
-    val results: String? = null
+    val results: String? = null,
+    /** True when validity could not be determined (e.g. owner doc fetch failed). Not "invalid". */
+    val unknown: Boolean = false
 )
 
 data class GranteeCredentialUpdateResult(
@@ -60,5 +62,7 @@ data class GranteeCredentialUpdateResult(
 
 data class QueryVcidResult(
     val isValid: Boolean,
-    val credential: String? = null
+    val credential: String? = null,
+    /** True when verification could not be completed (e.g. transient owner-doc fetch failure). */
+    val unknown: Boolean = false
 )

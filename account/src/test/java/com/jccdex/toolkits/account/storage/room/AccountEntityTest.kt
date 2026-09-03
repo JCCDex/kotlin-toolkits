@@ -4,11 +4,12 @@ import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.Path
 import com.jccdex.toolkits.core.model.WalletAccount
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class AccountEntityTest {
     @Test
-    fun toWalletAccount_unknownChain_fallsBackToEth() {
+    fun toWalletAccount_unknownChain_throwsUnknownChainCodeException() {
         val entity =
             baseEntity().copy(
                 chain = -1L,
@@ -17,7 +18,9 @@ class AccountEntityTest {
                 pathChange = null
             )
 
-        assertThat(entity.toWalletAccount().chain).isEqualTo(ChainType.ETH)
+        // M-15A: unknown chain code must fail observably instead of silently routing to ETH.
+        val ex = assertThrows(UnknownChainCodeException::class.java) { entity.toWalletAccount() }
+        assertThat(ex.chainCode).isEqualTo(-1L)
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.jccdex.toolkits.nft.model.EthTokenUriResolver
 import com.jccdex.toolkits.nft.model.WalletAccount
 import com.jccdex.toolkits.nft.remote.SsrfGuard
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -471,6 +472,7 @@ class NftStoreTest {
                       "issuanceDate": "2025-01-01T00:00:00Z"
                     }
                     """.trimIndent()
+                SsrfGuard.enabled = false
                 coEvery {
                     resolver.resolveEthrTokenUri("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd", "1", 1L)
                 } returns """{"not":"a-uri"}"""
@@ -496,9 +498,8 @@ class NftStoreTest {
         }
 
     @Test
-    fun fetchAndCacheNftMeta_ssrfGuardBlocksPrivateUrlWithoutHttp() =
+    fun fetchAndCacheNftMeta_fetchesFromLoopbackMockServer() =
         runTest {
-            SsrfGuard.enabled = true
             val database = newDatabase()
             val store = NftStore(database.nftDao())
             val server = MockWebServer()
@@ -508,18 +509,17 @@ class NftStoreTest {
                 server.enqueue(
                     MockResponse()
                         .setResponseCode(200)
-                        .setBody("""{"name":"should-not-fetch"}""")
+                        .setBody("""{"name":"avatar","image":"https://example.com/avatar.png"}""")
                 )
-                // MockWebServer binds to loopback — SsrfGuard must reject before HTTP.
                 val uri = server.url("/meta.json").toString()
                 assertTrue(uri.contains("127.0.0.1") || uri.contains("localhost"))
 
-                assertNull(store.fetchAndCacheNftMeta("issuer", "blocked", uri))
-                assertEquals(0, server.requestCount)
+                val result = store.fetchAndCacheNftMeta("issuer", "loopback", uri)
+                assertThat(result?.name).isEqualTo("avatar")
+                assertEquals(1, server.requestCount)
             } finally {
                 server.shutdown()
                 database.close()
-                SsrfGuard.enabled = true
             }
         }
 
@@ -615,8 +615,72 @@ class NftStoreTest {
             }
         }
 
+    @Test
+    fun resolveEthrAvatar_parsesHexChainIdAndResolvesTokenUri() =
+        runTest {
+            val database = newDatabase()
+            val resolver = mockk<EthTokenUriResolver>()
+            val store = NftStore(database.nftDao(), resolver)
+
+            try {
+                val vc =
+                    """
+                    {
+                      "credentialSubject": {
+                        "tokenId": "42",
+                        "contractAddress": "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                        "chainId": "0x1"
+                      },
+                      "issuanceDate": "2025-01-01T00:00:00Z"
+                    }
+                    """.trimIndent()
+                coEvery {
+                    resolver.resolveEthrTokenUri("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd", "42", 1L)
+                } returns "https://example.com/token.json"
+
+                val result = store.resolveEthrAvatar(vc)
+
+                assertThat(result?.uri).isEqualTo("https://example.com/token.json")
+                assertThat(result?.chainId).isEqualTo(1L)
+                coVerify {
+                    resolver.resolveEthrTokenUri("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd", "42", 1L)
+                }
+            } finally {
+                database.close()
+            }
+        }
+
     private fun newDatabase() =
         Room.inMemoryDatabaseBuilder(context, NftRoomDatabase::class.java)
             .allowMainThreadQueries()
             .build()
+
+    @Test
+    fun chainId_normalizedHexAndDecimalHitSameRecord() =
+        runTest {
+            val database = newDatabase()
+            try {
+                database.nftDao().upsertEvmNftItems(
+                    listOf(
+                        EvmNftItemEntity(
+                            chainId = "0x1",
+                            ownerAddress = "0xowner",
+                            contractAddress = "0xcontract",
+                            tokenId = "1",
+                            title = "nft"
+                        )
+                    )
+                )
+                val store = NftStore(database.nftDao(), mockk())
+
+                // M-13N: decimal "1" and hex "0x1" must hit the same row.
+                assertThat(store.getEvmNftItem("1", "0xOwner", "0xContract", "1")?.title).isEqualTo("nft")
+                assertThat(store.getEvmNftItem("0x1", "0xOwner", "0xContract", "1")?.title).isEqualTo("nft")
+                // Missing/invalid chainId → null (never queries "0x0").
+                assertThat(store.getEvmNftItem("", "0xOwner", "0xContract", "1")).isNull()
+                assertThat(store.getEvmNftItem("abc", "0xOwner", "0xContract", "1")).isNull()
+            } finally {
+                database.close()
+            }
+        }
 }

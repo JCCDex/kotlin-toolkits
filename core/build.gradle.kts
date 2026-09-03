@@ -28,8 +28,10 @@ android {
 }
 
 dependencies {
+    implementation(libs.gson)
     testImplementation(libs.junit)
     testImplementation(libs.assertj.core)
     testImplementation(libs.robolectric)
+    testImplementation(libs.mockwebserver)
     testImplementation(kotlin("test"))
 }

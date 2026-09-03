@@ -1,32 +1,44 @@
 package com.jccdex.toolkits.nft.remote
 
-import android.util.Base64
 import com.jccdex.toolkits.core.model.ChainDefaults
+import com.jccdex.toolkits.core.net.HttpFetcher
+import com.jccdex.toolkits.core.net.HttpResult
+import com.jccdex.toolkits.core.net.RedirectPolicy
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.KeyStore
-import java.security.MessageDigest
-import java.security.cert.X509Certificate
-import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLException
-import javax.net.ssl.SSLSocketFactory
-import javax.net.ssl.TrustManager
-import javax.net.ssl.TrustManagerFactory
-import javax.net.ssl.X509TrustManager
 
 /**
  * Resolves SWTC NFT metadata URIs from chain via `erc_info`, independent of wallet ownership.
  * Aligns with CCDAOConnector `image-cache.js` (`resolveSwtcNft`).
  */
-class SwtcChainNftClient(
-    private val rpcNodes: List<String> = ChainDefaults.Swtc.getRpcUrls(),
-    private val certificatePins: List<String> = emptyList()
+class SwtcChainNftClient private constructor(
+    private val rpcNodes: List<String>,
+    private val certificatePins: List<String>,
+    enforceHttps: Boolean
 ) {
+    init {
+        // M-10N: RPC nodes must be https (defaults are). The only public entry (create) always
+        // enforces; the internal createForTest seam is for http-only MockWebServer tests.
+        if (enforceHttps) {
+            val httpNode = rpcNodes.firstOrNull { !it.startsWith("https://", ignoreCase = true) }
+            require(httpNode == null) { "SWTC RPC node must use https; got: $httpNode" }
+        }
+    }
+
+    // C-2/C-17: HTTP + cert pinning converged to core HttpFetcher (http allowed as before; same-host redirects).
+    private val httpFetcher =
+        HttpFetcher(
+            connectTimeoutMs = 15_000,
+            readTimeoutMs = 15_000,
+            maxResponseBytes = MAX_HTTP_RESPONSE_CHARS,
+            httpsOnly = false,
+            redirectPolicy = RedirectPolicy.SAME_HOST_HTTPS,
+            certificatePins = certificatePins.toSet()
+        )
+
     suspend fun fetchMetadataUri(tokenId: String): String? =
         withContext(Dispatchers.IO) {
             val normalizedTokenId = tokenId.trim()
@@ -34,7 +46,9 @@ class SwtcChainNftClient(
                 return@withContext null
             }
             rpcNodes.firstNotNullOfOrNull { nodeUrl ->
-                runCatching { requestErcInfoMetadataUri(nodeUrl, normalizedTokenId) }.getOrNull()
+                runCatching { requestErcInfoMetadataUri(nodeUrl, normalizedTokenId) }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull()
             }
         }
 
@@ -65,83 +79,28 @@ class SwtcChainNftClient(
     private fun postJson(
         nodeUrl: String,
         body: JSONObject
-    ): JSONObject? {
-        val connection = openPinnedConnection(nodeUrl) ?: return null
-        return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 15_000
-            connection.readTimeout = 15_000
-            connection.doOutput = true
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.outputStream.bufferedWriter().use { writer ->
-                writer.write(body.toString())
-            }
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (code !in 200..299 || text.isBlank()) {
-                return null
-            }
-            JSONObject(text)
-        } catch (_: Exception) {
-            null
-        } finally {
-            connection.disconnect()
+    ): JSONObject? =
+        when (val result = httpFetcher.postJson(nodeUrl, body.toString())) {
+            is HttpResult.Success -> runCatching { JSONObject(result.value) }.getOrNull()
+            is HttpResult.Failure -> null
         }
-    }
-
-    private fun openPinnedConnection(nodeUrl: String): HttpURLConnection? {
-        val connection = (URL(nodeUrl).openConnection() as? HttpURLConnection) ?: return null
-        if (connection is HttpsURLConnection && certificatePins.isNotEmpty()) {
-            connection.sslSocketFactory = createPinnedSslSocketFactory()
-        }
-        return connection
-    }
-
-    private fun createPinnedSslSocketFactory(): SSLSocketFactory {
-        val defaultTrustManagers =
-            run {
-                val tmf =
-                    TrustManagerFactory
-                        .getInstance(TrustManagerFactory.getDefaultAlgorithm())
-                tmf.init(null as KeyStore?)
-                tmf.trustManagers.filterIsInstance<X509TrustManager>()
-            }
-        val pinnedTm = PinnedTrustManager(defaultTrustManagers.first(), certificatePins.toSet())
-        val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, arrayOf<TrustManager>(pinnedTm), null)
-        return sslContext.socketFactory
-    }
-
-    private class PinnedTrustManager(
-        private val delegate: X509TrustManager,
-        private val pins: Set<String>
-    ) : X509TrustManager {
-        override fun checkClientTrusted(
-            chain: Array<X509Certificate>,
-            authType: String
-        ) {
-            delegate.checkClientTrusted(chain, authType)
-        }
-
-        override fun checkServerTrusted(
-            chain: Array<X509Certificate>,
-            authType: String
-        ) {
-            delegate.checkServerTrusted(chain, authType)
-            for (cert in chain) {
-                val digest = MessageDigest.getInstance("SHA-256").digest(cert.publicKey.encoded)
-                val hash = "sha256/" + Base64.encodeToString(digest, Base64.NO_WRAP)
-                if (hash in pins) return
-            }
-            throw SSLException("Certificate pinning failure")
-        }
-
-        override fun getAcceptedIssuers(): Array<X509Certificate> = delegate.acceptedIssuers
-    }
 
     companion object {
+        /**
+         * M-10N: public entry — always enforces https node URLs (default nodes are already https).
+         * The constructor is private so hosts cannot bypass the check.
+         */
+        fun create(
+            rpcNodes: List<String> = ChainDefaults.Swtc.getRpcUrls(),
+            certificatePins: List<String> = emptyList()
+        ): SwtcChainNftClient = SwtcChainNftClient(rpcNodes, certificatePins, enforceHttps = true)
+
+        /** M-10N: internal test seam — MockWebServer is http-only. Not reachable outside the module. */
+        internal fun createForTest(
+            rpcNodes: List<String>,
+            certificatePins: List<String> = emptyList()
+        ): SwtcChainNftClient = SwtcChainNftClient(rpcNodes, certificatePins, enforceHttps = false)
+
         fun parseErcInfoMetadataUri(response: JSONObject): String? {
             val tokenInfosElement =
                 response

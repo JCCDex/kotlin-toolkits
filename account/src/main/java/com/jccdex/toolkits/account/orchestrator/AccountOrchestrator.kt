@@ -4,15 +4,18 @@ import com.jccdex.toolkits.account.store.IAccountStore
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.Path
 import com.jccdex.toolkits.core.model.WalletAccount
+import com.jccdex.toolkits.core.security.wipe
+import com.jccdex.toolkits.vault.VaultAuthLockedException
 import com.jccdex.toolkits.vault.VaultRepository
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
 import com.jccdex.toolkits.wallet.model.Keypair
 import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import com.jccdex.toolkits.wallet.model.Path as WalletPath
+import java.util.Locale
 
 class AccountOrchestrator(
     private val store: IAccountStore,
@@ -29,7 +32,8 @@ class AccountOrchestrator(
     ): AccountOperationResult<String> =
         runOperation {
             val address = derived.address
-            if (store.findNonRootAccount(address, chain) != null) {
+            // M-18A: full existence check — any account type (incl. HD root) with this address+chain.
+            if (store.findByAddress(address, chain) != null) {
                 return@runOperation AccountOperationResult.Error(AccountOperationError.AddressAlreadyExists)
             }
 
@@ -42,7 +46,7 @@ class AccountOrchestrator(
                     name = name,
                     isHD = isHD,
                     parentId = parentId,
-                    path = derived.path?.toCorePath(),
+                    path = derived.path,
                     publicKey = derived.keypair.publicKey
                 )
             store.addAccount(walletAccount)
@@ -57,6 +61,9 @@ class AccountOrchestrator(
      * @param clearExistingPassword **Current** vault password required when [clearExisting] and
      *   vault already has a password. Must not be confused with [password] (e.g. reset UI new password).
      *   Do not reuse the same [ByteArray] instance as [password].
+     * @param clearExisting If true, irreversibly wipes the current vault and account table **before**
+     *   importing. Only honored after the duplicate check passes; an already-imported root address is
+     *   rejected with [AccountOperationError.AccountAlreadyExists] and no data is cleared.
      */
     suspend fun importHdWallet(
         hdResult: GenerateHDWalletResult,
@@ -66,6 +73,15 @@ class AccountOrchestrator(
         clearExistingPassword: ByteArray? = null
     ): AccountOperationResult<ImportHdWalletResult> =
         runOperation {
+            // Dedupe must run before any clearing: with clearExisting=true the account table is
+            // wiped below, so an already-imported root address would otherwise be silently re-imported
+            // (and the existing wallet irreversibly destroyed) with no error reported.
+            // M-18A: full existence check — the HD root is imported on SWTC, so catch any SWTC account
+            // (traditional or HD root) already using this address.
+            if (store.findByAddress(hdResult.address, ChainType.SWTC) != null) {
+                return@runOperation AccountOperationResult.Error(AccountOperationError.AccountAlreadyExists)
+            }
+
             if (clearExisting) {
                 if (vault.hasPassword()) {
                     val pwd =
@@ -74,7 +90,7 @@ class AccountOrchestrator(
                                 AccountOperationError.PasswordRequiredForClear
                             )
                     try {
-                        vault.clearAllData(pwd)
+                        vault.clearAllData(pwd.copyOf())
                     } catch (_: IllegalArgumentException) {
                         return@runOperation AccountOperationResult.Error(AccountOperationError.WrongPassword())
                     }
@@ -82,10 +98,6 @@ class AccountOrchestrator(
                     vault.clearAllData()
                 }
                 store.clearAllAccounts()
-            }
-
-            if (store.findRootAccountByAddress(hdResult.address) != null) {
-                return@runOperation AccountOperationResult.Error(AccountOperationError.AccountAlreadyExists)
             }
 
             if (!vault.hasPassword()) {
@@ -119,30 +131,47 @@ class AccountOrchestrator(
             val childIds = mutableListOf<HdChildAccountId>()
             val keys = mutableListOf<VaultPrivateKeyImport>()
 
-            for (sub in hdResult.accounts) {
-                val chainType = ChainType.fromBip44Code(sub.chain) ?: continue
-                keys.add(VaultPrivateKeyImport(sub.address, sub.keypair.privateKey.toByteArray()))
+            try {
+                for (sub in hdResult.accounts) {
+                    val chainType = ChainType.fromBip44Code(sub.chain) ?: continue
+                    // M-22A: dedup before assembling keys — do not import keys for repeated sub-accounts
+                    // the code has already decided to skip (semantic consistency/hygiene).
+                    if (store.findNonRootAccount(sub.address, chainType) != null) {
+                        continue
+                    }
 
-                if (store.findNonRootAccount(sub.address, chainType) != null) {
-                    continue
+                    keys.add(VaultPrivateKeyImport(sub.address, sub.keypair.privateKey.toByteArray()))
+
+                    val child =
+                        WalletAccount(
+                            address = sub.address,
+                            chain = chainType,
+                            name = "${chainType.label}-HD",
+                            isHD = true,
+                            parentId = rootAccount.id,
+                            path = sub.path,
+                            publicKey = sub.keypair.publicKey
+                        )
+                    accounts.add(child)
+                    childIds.add(HdChildAccountId(chainType, child.id))
                 }
 
-                val child =
-                    WalletAccount(
-                        address = sub.address,
-                        chain = chainType,
-                        name = "${chainType.label}-HD",
-                        isHD = true,
-                        parentId = rootAccount.id,
-                        path = sub.path.toCorePath(),
-                        publicKey = sub.keypair.publicKey
-                    )
-                accounts.add(child)
-                childIds.add(HdChildAccountId(chainType, child.id))
+                vault.importPrivateKeys(keys)
+                store.addAccounts(accounts)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Throwable) {
+                // M-13A: compensating rollback — vault writes (root mnemonic/keys) may have succeeded
+                // but the store commit (or a child dedup lookup) failed; remove the imported root and
+                // child keys so they don't linger as orphans.
+                // Prefer removeAddressUnlocked: initializePassword / importMnemonic leave the session
+                // unlocked and wipe the caller's password buffer, so removeAddress(password) cannot
+                // authenticate. Additive imports (password == null) also rely on the unlocked session.
+                // If the vault is locked, rollback is skipped (orphan detectable via listOrphanKeys);
+                // a process-kill inside this window remains the documented limitation.
+                rollbackVaultImport(hdResult.address, keys)
+                throw t
             }
-
-            vault.importPrivateKeys(keys)
-            store.addAccounts(accounts)
 
             AccountOperationResult.Success(
                 ImportHdWalletResult(
@@ -152,6 +181,41 @@ class AccountOrchestrator(
             )
         }
 
+    /**
+     * M-13A: best-effort removal of the root mnemonic/keys written by a failed HD import.
+     * Only the addresses imported in THIS call are removed (post-M-22A, [importedKeys] excludes
+     * repeated children already present in the store); the M-18A root pre-check guarantees the root
+     * was newly written here. Failures are swallowed — rollback is best-effort.
+     */
+    private suspend fun rollbackVaultImport(
+        rootAddress: String,
+        importedKeys: List<VaultPrivateKeyImport>
+    ) {
+        if (!vault.isUnlocked) return
+        val addresses = importedKeys.map { it.address } + rootAddress
+        addresses.forEach { address ->
+            runCatching { vault.removeAddressUnlocked(address) }
+        }
+    }
+
+    /**
+     * M-13A: reconciliation — returns addresses that hold a vault key but have no store account
+     * record (orphan keys left by a crash or partial write). Non-destructive; hosts can surface
+     * these or clean them up.
+     */
+    suspend fun listOrphanKeys(): List<String> {
+        // M-13A + M-15A: compare against RAW store addresses (no toWalletAccount mapping) so the
+        // diagnostic stays usable even when the store holds an unknown-chain row.
+        val storeAddresses = store.listAllAddresses().map { it.lowercase(Locale.ROOT) }.toSet()
+        return vault.listAccounts().filter { it.lowercase(Locale.ROOT) !in storeAddresses }
+    }
+
+    /**
+     * Imports a derived HD sub-account into the account store. No vault key is persisted: the
+     * sub-account private key is meant to be derived from the root mnemonic at signing time
+     * (not yet implemented — sub-account signing is currently unavailable). Writing an empty key
+     * to vault would permanently lock the address, so vault persistence is skipped for it.
+     */
     suspend fun importSubAccount(
         derived: DerivedSubAccount,
         name: String
@@ -168,7 +232,7 @@ class AccountOrchestrator(
                             privateKey = "",
                             publicKey = derived.publicKey
                         ),
-                    path = derived.path.toWalletPath()
+                    path = derived.path
                 ),
             chain = derived.chain,
             name = name,
@@ -243,15 +307,19 @@ class AccountOrchestrator(
                     DerivedSubAccount(
                         address = subWallet.address,
                         chain = chain,
-                        path = subWallet.path.toCorePath(),
+                        path = subWallet.path,
                         rootAccountId = rootAccount.id,
                         publicKey = subWallet.keypair.publicKey
                     )
                 )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: VaultAuthLockedException) {
+                AccountOperationResult.Error(AccountOperationError.VaultLocked(e.remainingMs))
             } catch (e: Exception) {
                 AccountOperationResult.Error(AccountOperationError.Failure(e))
             } finally {
-                mnemonic?.fill(0)
+                mnemonic?.wipe()
             }
         }
 
@@ -264,7 +332,8 @@ class AccountOrchestrator(
         runOperation {
             try {
                 if (vault.hasPassword()) {
-                    vault.clearAllData(password)
+                    // M-17A: pass a copy so vault's wipe (H-R5) does not zero the caller's array.
+                    vault.clearAllData(password.copyOf())
                 } else {
                     vault.clearAllData()
                 }
@@ -298,7 +367,13 @@ class AccountOrchestrator(
                 )
             }
             else -> {
-                vault.importPrivateKey(derived.address, keypair.privateKey.toByteArray())
+                // Sub-accounts are derived from the root mnemonic at signing time and carry no real
+                // private key; importing an empty key would permanently lock the address in vault
+                // (addressInKeys short-circuit blocks later real-key imports). Skip the vault write
+                // so a genuine private key can be imported for the address later.
+                if (keypair.privateKey.isNotEmpty()) {
+                    vault.importPrivateKey(derived.address, keypair.privateKey.toByteArray())
+                }
             }
         }
     }
@@ -306,23 +381,13 @@ class AccountOrchestrator(
     private inline fun <T> runOperation(block: () -> AccountOperationResult<T>): AccountOperationResult<T> =
         try {
             block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: VaultAuthLockedException) {
+            // M-21A: typed path for "vault locked" so callers can show the lock countdown
+            // instead of a generic Failure.
+            AccountOperationResult.Error(AccountOperationError.VaultLocked(e.remainingMs))
         } catch (e: Exception) {
             AccountOperationResult.Error(AccountOperationError.Failure(e))
         }
-
-    private fun WalletPath.toCorePath(): Path =
-        Path(
-            chain = chain,
-            account = account,
-            change = change,
-            index = index
-        )
-
-    private fun Path.toWalletPath(): WalletPath =
-        WalletPath(
-            chain = chain,
-            account = account,
-            change = change,
-            index = index
-        )
 }

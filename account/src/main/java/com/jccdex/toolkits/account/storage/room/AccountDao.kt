@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import com.jccdex.toolkits.core.model.AccountClassification
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -15,6 +16,10 @@ interface AccountDao {
 
     @Query("SELECT * FROM accounts")
     suspend fun getAllAccountsSync(): List<AccountEntity>
+
+    // M-13A: raw addresses without chain mapping — usable even with unknown-chain rows (M-15A).
+    @Query("SELECT address FROM accounts")
+    suspend fun getAllAddresses(): List<String>
 
     @Query("SELECT * FROM accounts WHERE id = :id")
     suspend fun getAccountById(id: String): AccountEntity?
@@ -31,16 +36,15 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE address = :address COLLATE NOCASE LIMIT 1")
     suspend fun getAccountByAddress(address: String): AccountEntity?
 
-    @Query("SELECT * FROM accounts WHERE address = :address COLLATE NOCASE AND isHD = 1 AND parentId IS NULL LIMIT 1")
+    @Query(
+        "SELECT * FROM accounts WHERE address = :address COLLATE NOCASE " +
+            "AND ${AccountClassification.SQL_IS_ROOT_HD} LIMIT 1"
+    )
     suspend fun getRootAccountByAddress(address: String): AccountEntity?
 
     @Query(
-        """
-    SELECT * FROM accounts 
-    WHERE address = :address COLLATE NOCASE 
-    AND chain = :chain 
-    AND ((isHD = 1 AND parentId IS NOT NULL) OR isHD = 0)
-    LIMIT 1"""
+        "SELECT * FROM accounts WHERE address = :address COLLATE NOCASE AND chain = :chain " +
+            "AND ${AccountClassification.SQL_IS_NON_ROOT} LIMIT 1"
     )
     suspend fun getNonRootAccount(
         address: String,
@@ -50,10 +54,10 @@ interface AccountDao {
     @Query("SELECT * FROM accounts WHERE chain = :chain")
     fun getAccountsByChain(chain: Long): Flow<List<AccountEntity>>
 
-    @Query("SELECT * FROM accounts WHERE isHD = 1 AND parentId IS NULL")
+    @Query("SELECT * FROM accounts WHERE ${AccountClassification.SQL_IS_ROOT_HD}")
     fun getRootHDAccounts(): Flow<List<AccountEntity>>
 
-    @Query("SELECT * FROM accounts WHERE isHD = 1 AND parentId IS NOT NULL")
+    @Query("SELECT * FROM accounts WHERE ${AccountClassification.SQL_IS_SUB_HD}")
     fun getSubHDAccounts(): Flow<List<AccountEntity>>
 
     @Query("SELECT * FROM accounts WHERE isHD = 0")

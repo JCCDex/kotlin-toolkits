@@ -128,6 +128,15 @@ SDK 内置 `ccdao-eip1193-provider.js`，实现：
 - `_updateSwtcSelectedAddress(address)` — 推送 SWTC 地址变更，触发 `swtcAccountsChanged`
 - `_updateChainId(chainIdHex, rpcUrl)` — 推送链切换，触发 `chainChanged`
 
+## 3.1 Breaking changes（B-1）
+
+| 旧 API | 新 API | 说明 |
+|--------|--------|------|
+| `SwtcMiddleware.sendTransactionWithPassword(txParams, password, origin)` | `sendTransactionForNative(txParams, origin)` | `password` 从未参与签名；secret 来自 `SecretProvider` |
+| `SwtcMiddleware.sendNftTransactionWithPassword(..., password)` | `sendNftTransactionForNative(...)` | 同上；NFT 路径使用 `WebOrigin.WALLET_INTERNAL` |
+
+宿主应用若 fork 了 middleware 或仍调用旧方法名，需同步改名并删除多余的 `password` 参数。
+
 ## 4. 测试
 
 ```bash

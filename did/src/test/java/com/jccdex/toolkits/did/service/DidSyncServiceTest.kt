@@ -71,4 +71,25 @@ class DidSyncServiceTest {
             assertThat(result.entries).isEmpty()
             assertThat(result.addressesLower).isEmpty()
         }
+
+    @Test
+    fun `syncAccounts isolates a corrupt account instead of aborting the batch`() =
+        runTest {
+            val corrupt = WalletAccount(address = "0xbad", chain = ChainType.ETH, publicKey = "pub")
+            val valid = WalletAccount(address = "0xabc", chain = ChainType.ETH, publicKey = "pub")
+            val document = """{"service":[{"type":"Profile","serviceEndpoint":{"nickname":"alice"}}]}"""
+
+            // Corrupt EVM address → toDid throws (data corruption, M-DID7 root cause).
+            every { didSdk.toDid(corrupt) } throws IllegalArgumentException("bad address")
+            every { didSdk.toDid(valid) } returns "did:ethr:0xabc"
+            coEvery { didSdk.resolveDid("did:ethr:0xabc") } returns document
+            every { didSdk.nickname(document) } returns "alice"
+
+            val result = service.syncAccounts(listOf(corrupt, valid))
+
+            // The valid account still syncs; the corrupt one is counted, not aborting the batch.
+            assertThat(result.entries).hasSize(1)
+            assertThat(result.entries.first().did).isEqualTo("did:ethr:0xabc")
+            assertThat(result.failedCount).isEqualTo(1)
+        }
 }

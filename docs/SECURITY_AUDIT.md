@@ -259,11 +259,11 @@ PR `#16`（`fix: C/H/M-level security audit fixes…`）**实质推进**了多�
 | **行号** | 163–164, 174–175, 196–197, 320–321 |
 | | `dapp-connect/.../WebAppInterface.kt`（对应 handler） |
 
-**描述：** `personalSign`、`switchEthereumChain` 传递 origin；`signTransaction`、`signTypedData`、`decrypt`、`getEncryptionPublicKey` 等传空字符串 `""`。`UnauthorizedException`（`Models.kt`）已定义但未被抛出。
+**描述：** `personalSign`、`switchEthereumChain` 传递 origin；`signTransaction`、`signTypedData`、`decrypt`、`getEncryptionPublicKey` 等传空字符串 `""`。原 `UnauthorizedException`（已删除死代码，见 C-11）曾定义 4100 但未强制抛出。
 
-**修复建议：** 全链路传递 `getOrigin()`；origin 缺失或未授权时抛出 `UnauthorizedException`（4100）。
+**修复建议：** 全链路传递 `getOrigin()`；origin 缺失或未授权时返回 EIP-1193 4100（待 C-9/C-12 统一错误码）。
 
-**复审（2026-07-31）：** 🟨 部分修复。`signTypedData` / `decrypt` / `getEncryptionPublicKey` / `signTransaction` 已可传 origin；**`eth_sendTransaction` → `sendTransaction(txParams)` 仍不带 origin**，默认 `""`，宿主按 origin 授权会被绕过。`UnauthorizedException` 仍未见强制抛出。
+**复审（2026-07-31）：** 🟨 部分修复。`signTypedData` / `decrypt` / `getEncryptionPublicKey` / `signTransaction` 已可传 origin；**`eth_sendTransaction` → `sendTransaction(txParams)` 仍不带 origin**，默认 `""`，宿主按 origin 授权会被绕过。
 
 ---
 
@@ -546,7 +546,11 @@ dapp-connect/
 
 webview-bridge/
   WebviewBridgeClient.kt
-  WebviewBridgeEngine.kt
+  SharedWebviewBridge.kt
+  ToolkitBridgeRuntime.kt
+  PromiseGateway.kt
+  assets/unified-bridge.html
+  assets/bridge-promise-core.js
   assets/did-bridge.js
   assets/wallet-bridge.js
 

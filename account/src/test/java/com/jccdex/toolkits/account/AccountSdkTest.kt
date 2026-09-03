@@ -59,6 +59,14 @@ class AccountSdkTest {
     }
 
     @Test
+    fun orchestrator_returnsSameInstanceForSameVault() {
+        // M-19A: repeated calls must share one orchestrator (and its Mutex), otherwise concurrent
+        // deriveSubAccount/removeAccount across instances would not serialize.
+        val vault = mockk<VaultRepository>(relaxed = true)
+        assertThat(sdk.orchestrator(vault)).isSameAs(sdk.orchestrator(vault))
+    }
+
+    @Test
     fun getAccountsByChain_delegatesToStore() =
         runTest {
             sdk.addAccount(
@@ -265,6 +273,8 @@ private class RecordingAccountStore : IAccountStore {
         accountsState.value.firstOrNull {
             it.address.equals(address, ignoreCase = true) && it.chain == chain
         }
+
+    override suspend fun listAllAddresses(): List<String> = accountsState.value.map { it.address }
 
     override suspend fun findByAddress(address: String): WalletAccount? =
         accountsState.value.firstOrNull {

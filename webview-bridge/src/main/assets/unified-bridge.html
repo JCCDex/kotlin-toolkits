@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <script src="jcc-wallet-4.0.8.min.js"></script>
+    <script src="jingtum-lib.min.js"></script>
+    <script src="eth-sig-util.min.js"></script>
+    <script src="ethereumjs-tx-5.4.0.min.js"></script>
+    <script src="did-0.3.2.min.js"></script>
+    <script src="bridge-promise-core.js"></script>
+    <script src="wallet-bridge.js"></script>
+    <script src="did-bridge.js"></script>
+    <title>Unified Bridge</title>
+</head>
+<body>
+<!-- Single hidden WebView for wallet + DID crypto (P2-8b / X-1) -->
+<script>
+  if (typeof __notifyBridgeReady === "function") {
+    __notifyBridgeReady();
+  }
+</script>
+</body>
+</html>

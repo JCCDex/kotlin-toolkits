@@ -7,6 +7,7 @@ import android.util.Log
 import android.webkit.WebMessage
 import android.webkit.WebMessagePort
 import android.webkit.WebView
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -24,6 +25,19 @@ class NativeResponseChannel(
     private var responsePort: WebMessagePort? = null
     private val pending = ArrayDeque<String>()
 
+    /**
+     * Handshake target origin for [install].
+     *
+     * v0.3.2 and all shipping hosts (jdid, ccdao) used `"*"` here. M-D3 switched to a strict page
+     * origin, which silently fails on several in-app WebView builds (JS never receives the port →
+     * connect hangs). Strict origin remains available via [resolveStrictTargetOrigin] for future
+     * opt-in; default install keeps the v0.3.2 wildcard for compatibility.
+     */
+    internal fun handshakeTargetOrigin(): String = HANDSHAKE_TARGET_WILDCARD
+
+    /** Strict M-D3 origin (page URL); null when unavailable — for diagnostics/tests only. */
+    internal fun resolveStrictTargetOrigin(): String? = webView.url?.let { WebOrigin.normalize(it) }
+
     /** Transfer a fresh JS-side port; flushes any responses queued before install. */
     fun install() {
         runOnMain {
@@ -33,7 +47,6 @@ class NativeResponseChannel(
                 val channel = webView.createWebMessageChannel()
                 val nativePort = channel[0]
                 val jsPort = channel[1]
-                // Native does not expect JS→native traffic on this port today.
                 nativePort.setWebMessageCallback(
                     object : WebMessagePort.WebMessageCallback() {
                         override fun onMessage(
@@ -45,9 +58,11 @@ class NativeResponseChannel(
                 responsePort = nativePort
                 webView.postWebMessage(
                     WebMessage(HANDSHAKE, arrayOf(jsPort)),
-                    Uri.parse("*")
+                    Uri.parse(handshakeTargetOrigin())
                 )
                 flushPending()
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to install response channel", t)
             }
@@ -74,6 +89,8 @@ class NativeResponseChannel(
             pending.clear()
             try {
                 responsePort?.close()
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Throwable) {
             }
             responsePort = null
@@ -84,17 +101,28 @@ class NativeResponseChannel(
         runOnMain {
             val port = responsePort
             if (port == null) {
-                pending.addLast(json)
+                enqueuePending(json)
                 return@runOnMain
             }
             try {
                 port.postMessage(WebMessage(json))
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 Log.w(TAG, "postMessage failed; queueing until reinstall", t)
                 responsePort = null
-                pending.addLast(json)
+                enqueuePending(json)
             }
         }
+    }
+
+    /** Bounded queue (M-D6): drops the oldest entry when over [MAX_PENDING] to bound memory. */
+    private fun enqueuePending(json: String) {
+        if (pending.size >= MAX_PENDING) {
+            pending.removeFirst()
+            Log.w(TAG, "Pending response queue over $MAX_PENDING — dropped oldest (DoS guard)")
+        }
+        pending.addLast(json)
     }
 
     private fun flushPending() {
@@ -103,6 +131,8 @@ class NativeResponseChannel(
             val json = pending.removeFirst()
             try {
                 port.postMessage(WebMessage(json))
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to flush pending response", t)
                 pending.addFirst(json)
@@ -122,6 +152,12 @@ class NativeResponseChannel(
 
     companion object {
         private const val TAG = "NativeResponseChannel"
+
+        /** v0.3.2 handshake target; required for jdid/ccdao in-app WebView compatibility. */
+        internal const val HANDSHAKE_TARGET_WILDCARD = "*"
+
+        /** Bounded pending-queue size (M-D6 DoS guard). */
+        private const val MAX_PENDING = 100
 
         /** Must match the listener in `ccdao-eip1193-provider.js`. */
         const val HANDSHAKE = "__CCDAO_NATIVE_PORT__"

@@ -1,19 +1,23 @@
 package com.jccdex.toolkits.did.util
 
+import android.util.Log
+import com.jccdex.toolkits.core.nft.NftStandards
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
 import com.jccdex.toolkits.did.model.NftCredentialRestrictions
 import com.jccdex.toolkits.did.model.UnifiedNftCredentialData
 import com.jccdex.toolkits.did.model.UsageRights
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
 object DidCredentialHelper {
+    private const val TAG = "DidCredentialHelper"
     const val VC_TYPE_OWNERSHIP = "NFTOwnership"
     const val VC_TYPE_USAGE_AUTHORIZATION = "NFTUsageAuthorization"
     const val VC_TYPE_FILE_ACCESS_AUTHORIZATION = "FileAccessAuthorization"
-    const val STANDARD_JINGTUM_NFT = "jingtumNFT"
-    const val STANDARD_ERC721 = "ERC-721"
+    const val STANDARD_JINGTUM_NFT = NftStandards.JINGTUM_NFT
+    const val STANDARD_ERC721 = NftStandards.ERC721
     const val CONTEXT_TYPE_OWNERSHIP = "ownership"
     const val CONTEXT_TYPE_USAGE_AUTHORIZATION = "usageAuthorization"
 
@@ -21,14 +25,16 @@ object DidCredentialHelper {
 
     fun isEthrOwnerDid(ownerDid: String): Boolean = ownerDid.startsWith("did:ethr:")
 
+    private val whitespaceRegex = "\\s+".toRegex()
+
     fun generateVcId(data: UnifiedNftCredentialData): String =
         if (isSwtcOwnerDid(data.ownerDid)) {
-            val tokenNameClean = data.tokenName.orEmpty().replace("\\s+".toRegex(), "")
+            val tokenNameClean = data.tokenName.orEmpty().replace(whitespaceRegex, "")
             "${data.ownerDid}#nft-$tokenNameClean-${data.nftIssuer.orEmpty()}-${data.tokenId}-${data.granteeDid}"
         } else {
             val checksumContract =
                 data.contractAddress
-                    ?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }
+                    ?.let { ChecksumUtils.toChecksumAddress(it) }
                     .orEmpty()
             "${data.ownerDid}#nft-$checksumContract-${data.tokenId}-${data.granteeDid}"
         }
@@ -78,7 +84,7 @@ object DidCredentialHelper {
         } else {
             val checksumContract =
                 data.contractAddress
-                    ?.let { runCatching { ChecksumUtils.toChecksumAddress(it) }.getOrNull() }
+                    ?.let { ChecksumUtils.toChecksumAddress(it) }
                     .orEmpty()
             base.apply {
                 put("contractAddress", checksumContract)
@@ -113,6 +119,8 @@ object DidCredentialHelper {
             (0 until types.length()).any { index ->
                 types.optString(index).equals(type, ignoreCase = true)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             false
         }
@@ -129,11 +137,47 @@ object DidCredentialHelper {
         return credentialId.substringBefore(sep, "")
     }
 
+    data class EthrNftCredentialRef(
+        val contractAddress: String,
+        val tokenId: String
+    )
+
+    /**
+     * Parses `{owner}#nft-{contract}-{tokenId}-{grantee}` for ERC-721 ownership / authorization VCs.
+     */
+    fun parseEthrNftRefFromCredentialId(credentialId: String): EthrNftCredentialRef? {
+        val suffix = credentialId.substringAfter("#nft-", "")
+        if (suffix.isBlank() || !suffix.startsWith("0x", ignoreCase = true)) {
+            return null
+        }
+        val contractEnd = suffix.indexOf('-')
+        if (contractEnd <= 2) {
+            return null
+        }
+        val contract = suffix.substring(0, contractEnd).trim()
+        if (contract.length != 42) {
+            return null
+        }
+        val rest = suffix.substring(contractEnd + 1)
+        val tokenIdEnd = rest.indexOf('-')
+        if (tokenIdEnd <= 0) {
+            return null
+        }
+        val tokenId = rest.substring(0, tokenIdEnd).trim()
+        if (tokenId.isBlank()) {
+            return null
+        }
+        return EthrNftCredentialRef(contractAddress = contract, tokenId = tokenId)
+    }
+
     fun readCredentials(doc: String): JSONArray {
         return try {
             val root = JSONObject(doc)
             root.optJSONArray("credentials") ?: root.optJSONArray("credential") ?: JSONArray()
-        } catch (_: Exception) {
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "readCredentials failed", e)
             JSONArray()
         }
     }
@@ -149,6 +193,14 @@ object DidCredentialHelper {
             }
         }
         return -1
+    }
+
+    fun findCredentialById(
+        credentials: JSONArray,
+        credentialId: String
+    ): JSONObject? {
+        val index = findCredentialIndex(credentials, credentialId)
+        return if (index >= 0) credentials.optJSONObject(index) else null
     }
 
     fun clearPreferredAvatarIfMatches(

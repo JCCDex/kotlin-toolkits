@@ -64,3 +64,9 @@ enum class ChainType(
         fun fromChainId(chainId: Long): ChainType? = entries.firstOrNull { it.evmChainId == chainId }
     }
 }
+
+/** Lowercase hex EVM chain id (`0x1`), or null for non-EVM chains (C-20). */
+fun ChainType.toEvmChainIdHex(): String? = evmChainId?.toEvmChainIdHex()
+
+/** Formats a chain id as lowercase hex (`0x1`), consistent with M-13N normalization (C-20). */
+fun Long.toEvmChainIdHex(): String = "0x${toString(16)}"

@@ -20,7 +20,6 @@ import kotlin.test.assertTrue
 /** 直接测 SwtcBatchTransactions 的纯逻辑（parse / validate / build），不依赖 middleware 与 provider。 */
 @RunWith(RobolectricTestRunner::class)
 class SwtcBatchTransactionsTest {
-
     private val from = "jSwtcAddress"
     private val dest = "jDestAddress"
 
@@ -31,7 +30,9 @@ class SwtcBatchTransactionsTest {
         coEvery {
             WalletSdk.buildSwtcCreateOrder(any(), any(), any(), any(), any(), any(), any(), any())
         } returns """{"Account":"$from","TransactionType":"OfferCreate"}"""
-        coEvery { WalletSdk.buildSwtcCancelOrder(any(), any()) } returns """{"Account":"$from","TransactionType":"OfferCancel"}"""
+        coEvery {
+            WalletSdk.buildSwtcCancelOrder(any(), any())
+        } returns """{"Account":"$from","TransactionType":"OfferCancel"}"""
     }
 
     @After
@@ -45,8 +46,22 @@ class SwtcBatchTransactionsTest {
     fun `parseTransfers parses valid items`() {
         val arr =
             JSONArray().apply {
-                put(JSONObject().apply { put("to", dest); put("amount", "1"); put("currency", "SWT") })
-                put(JSONObject().apply { put("to", dest); put("amount", "2"); put("currency", "CCC"); put("issuer", from); put("memo", "hi") })
+                put(
+                    JSONObject().apply {
+                        put("to", dest)
+                        put("amount", "1")
+                        put("currency", "SWT")
+                    }
+                )
+                put(
+                    JSONObject().apply {
+                        put("to", dest)
+                        put("amount", "2")
+                        put("currency", "CCC")
+                        put("issuer", from)
+                        put("memo", "hi")
+                    }
+                )
             }
 
         val result = SwtcBatchTransactions.parseTransfers(arr)
@@ -62,10 +77,34 @@ class SwtcBatchTransactionsTest {
     fun `parseTransfers rejects unknown field`() {
         val arr =
             JSONArray().apply {
-                put(JSONObject().apply { put("to", dest); put("amount", "1"); put("unknown", "x") })
+                put(
+                    JSONObject().apply {
+                        put("to", dest)
+                        put("amount", "1")
+                        put("unknown", "x")
+                    }
+                )
             }
 
         assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseTransfers(arr) }
+    }
+
+    @Test
+    fun `parseTransfers rejects non-object element`() {
+        val arr = JSONArray().put("not-an-object")
+        assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseTransfers(arr) }
+    }
+
+    @Test
+    fun `parseCreateOrders rejects non-object element`() {
+        val arr = JSONArray().put(42)
+        assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseCreateOrders(arr) }
+    }
+
+    @Test
+    fun `parseCancelOrders rejects non-object element`() {
+        val arr = JSONArray().put(JSONArray())
+        assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseCancelOrders(arr) }
     }
 
     @Test
@@ -79,8 +118,12 @@ class SwtcBatchTransactionsTest {
             JSONArray().apply {
                 put(
                     JSONObject().apply {
-                        put("amount", "1"); put("base", "SWT"); put("counter", "CCC")
-                        put("sum", "100"); put("type", "buy"); put("unknown", "x")
+                        put("amount", "1")
+                        put("base", "SWT")
+                        put("counter", "CCC")
+                        put("sum", "100")
+                        put("type", "buy")
+                        put("unknown", "x")
                     }
                 )
             }
@@ -100,7 +143,15 @@ class SwtcBatchTransactionsTest {
 
     @Test
     fun `parseCancelOrders rejects unknown field`() {
-        val arr = JSONArray().apply { put(JSONObject().apply { put("sequence", 1); put("unknown", 2) }) }
+        val arr =
+            JSONArray().apply {
+                put(
+                    JSONObject().apply {
+                        put("sequence", 1)
+                        put("unknown", 2)
+                    }
+                )
+            }
 
         assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseCancelOrders(arr) }
     }
@@ -108,47 +159,121 @@ class SwtcBatchTransactionsTest {
     // ── validate ──
 
     @Test
-    fun `isValidTransfer true for native SWT with valid address`() = runTest {
-        val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)
-        assertTrue(SwtcBatchTransactions.isValidTransfer(t))
+    fun `isValidTransfer true for native SWT with valid address`() =
+        runTest {
+            val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)
+            assertTrue(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    @Test
+    fun `isValidTransfer false for non-positive amount`() =
+        runTest {
+            val t = SwtcBatchTransactions.Transfer(dest, "-5", "SWT", null, null)
+            assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    @Test
+    fun `isValidTransfer false when destination invalid`() =
+        runTest {
+            coEvery { WalletSdk.isValidAddress(dest) } returns false
+            val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)
+            assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    @Test
+    fun `isValidTransfer false for native currency with non-empty issuer`() =
+        runTest {
+            val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", from, null)
+            assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    // ── M-D8: amount / memo bounds ──
+
+    @Test
+    fun `parseTransfers rejects over-length memo`() {
+        val arr =
+            JSONArray().apply {
+                put(
+                    JSONObject().apply {
+                        put("to", dest)
+                        put("amount", "1")
+                        put("currency", "SWT")
+                        put("memo", "x".repeat(65))
+                    }
+                )
+            }
+
+        assertFailsWith<IllegalArgumentException> { SwtcBatchTransactions.parseTransfers(arr) }
     }
 
     @Test
-    fun `isValidTransfer false for non-positive amount`() = runTest {
-        val t = SwtcBatchTransactions.Transfer(dest, "-5", "SWT", null, null)
-        assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+    fun `parseTransfers accepts max-length memo`() {
+        val arr =
+            JSONArray().apply {
+                put(
+                    JSONObject().apply {
+                        put("to", dest)
+                        put("amount", "1")
+                        put("currency", "SWT")
+                        put("memo", "x".repeat(64))
+                    }
+                )
+            }
+
+        val result = SwtcBatchTransactions.parseTransfers(arr)
+        assertEquals(64, result[0].memo!!.length)
     }
 
     @Test
-    fun `isValidTransfer false when destination invalid`() = runTest {
-        coEvery { WalletSdk.isValidAddress(dest) } returns false
-        val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)
-        assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+    fun `isValidTransfer false for over-limit amount`() =
+        runTest {
+            val t = SwtcBatchTransactions.Transfer(dest, "1000000000001", "SWT", null, null)
+            assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    @Test
+    fun `isValidTransfer false for amount exceeding 6 decimal places`() =
+        runTest {
+            val t = SwtcBatchTransactions.Transfer(dest, "1.0000001", "SWT", null, null)
+            assertFalse(SwtcBatchTransactions.isValidTransfer(t))
+        }
+
+    @Test
+    fun `isBoundedPositiveAmount accepts max-limit and rejects over-limit`() {
+        assertTrue(SwtcBatchTransactions.isBoundedPositiveAmount("1000000000000", enforceScale = true))
+        assertFalse(SwtcBatchTransactions.isBoundedPositiveAmount("1000000000000.000001", enforceScale = true))
+        assertFalse(SwtcBatchTransactions.isBoundedPositiveAmount("0", enforceScale = true))
     }
 
     @Test
-    fun `isValidTransfer false for native currency with non-empty issuer`() = runTest {
-        val t = SwtcBatchTransactions.Transfer(dest, "1", "SWT", from, null)
-        assertFalse(SwtcBatchTransactions.isValidTransfer(t))
-    }
+    fun `isValidTransfer accepts high precision for non-native token`() =
+        runTest {
+            // M-D8: precision cap (scale≤6) applies only to native SWT — non-native tokens may
+            // legitimately have >6 decimal places.
+            val t = SwtcBatchTransactions.Transfer(dest, "1.0000001", "CCC", from, null)
+            assertTrue(SwtcBatchTransactions.isValidTransfer(t))
+        }
 
     @Test
-    fun `isValidCreateOrder true for valid buy`() = runTest {
-        val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)
-        assertTrue(SwtcBatchTransactions.isValidCreateOrder(o))
-    }
+    fun `isValidCreateOrder true for valid buy`() =
+        runTest {
+            val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)
+            assertTrue(SwtcBatchTransactions.isValidCreateOrder(o))
+        }
 
     @Test
-    fun `isValidCreateOrder false for invalid type`() = runTest {
-        val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "hold", null, from)
-        assertFalse(SwtcBatchTransactions.isValidCreateOrder(o))
-    }
+    fun `isValidCreateOrder false for invalid type`() =
+        runTest {
+            val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "hold", null, from)
+            assertFalse(SwtcBatchTransactions.isValidCreateOrder(o))
+        }
 
     @Test
-    fun `isValidCreateOrder false for non-positive sum`() = runTest {
-        val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "-1", "buy", null, from)
-        assertFalse(SwtcBatchTransactions.isValidCreateOrder(o))
-    }
+    fun `isValidCreateOrder false for non-positive sum`() =
+        runTest {
+            val o = SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "-1", "buy", null, from)
+            assertFalse(SwtcBatchTransactions.isValidCreateOrder(o))
+        }
 
     @Test
     fun `isPositiveDecimal handles invalid input`() {
@@ -167,105 +292,112 @@ class SwtcBatchTransactionsTest {
     }
 
     @Test
-    fun `isValidCurrencyAndIssuer requires issuer for non-native`() = runTest {
-        assertTrue(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", from, defaultIssuerIfNonNative = false))
-        assertFalse(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", null, defaultIssuerIfNonNative = false))
-        assertTrue(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", null, defaultIssuerIfNonNative = true))
-    }
+    fun `isValidCurrencyAndIssuer requires issuer for non-native`() =
+        runTest {
+            assertTrue(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", from, defaultIssuerIfNonNative = false))
+            assertFalse(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", null, defaultIssuerIfNonNative = false))
+            assertTrue(SwtcBatchTransactions.isValidCurrencyAndIssuer("CCC", null, defaultIssuerIfNonNative = true))
+        }
 
     // ── build ──
 
     @Test
-    fun `buildTxs builds native transfer as plain amount with fee 0 point 01`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)),
-                emptyList(),
-                emptyList()
-            )
+    fun `buildTxs builds native transfer as plain amount with fee 0 point 01`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)),
+                    emptyList(),
+                    emptyList()
+                )
 
-        assertEquals(1, txs.size)
-        val tx = txs[0]
-        assertEquals(from, tx.getString("Account"))
-        assertEquals("Payment", tx.getString("TransactionType"))
-        assertEquals(dest, tx.getString("Destination"))
-        assertEquals("1", tx.getString("Amount"))
-        assertEquals("0.01", tx.getString("Fee"))
-    }
-
-    @Test
-    fun `buildTxs builds non-native transfer as amount object with issuer`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                listOf(SwtcBatchTransactions.Transfer(dest, "5", "CCC", from, null)),
-                emptyList(),
-                emptyList()
-            )
-
-        val amount = txs[0].getJSONObject("Amount")
-        assertEquals("5", amount.getString("value"))
-        assertEquals("CCC", amount.getString("currency"))
-        assertEquals(from, amount.getString("issuer"))
-    }
+            assertEquals(1, txs.size)
+            val tx = txs[0]
+            assertEquals(from, tx.getString("Account"))
+            assertEquals("Payment", tx.getString("TransactionType"))
+            assertEquals(dest, tx.getString("Destination"))
+            assertEquals("1", tx.getString("Amount"))
+            assertEquals("0.01", tx.getString("Fee"))
+        }
 
     @Test
-    fun `buildTxs includes memo in text-plain format`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, "hello")),
-                emptyList(),
-                emptyList()
-            )
+    fun `buildTxs builds non-native transfer as amount object with issuer`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    listOf(SwtcBatchTransactions.Transfer(dest, "5", "CCC", from, null)),
+                    emptyList(),
+                    emptyList()
+                )
 
-        val memo = txs[0].getJSONArray("Memos").getJSONObject(0).getJSONObject("Memo")
-        assertEquals("hello", memo.getString("MemoData"))
-        assertEquals("text/plain", memo.getString("MemoType"))
-    }
-
-    @Test
-    fun `buildTxs builds create order via WalletSdk`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                emptyList(),
-                listOf(SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)),
-                emptyList()
-            )
-
-        assertEquals(1, txs.size)
-        assertEquals("OfferCreate", txs[0].getString("TransactionType"))
-    }
+            val amount = txs[0].getJSONObject("Amount")
+            assertEquals("5", amount.getString("value"))
+            assertEquals("CCC", amount.getString("currency"))
+            assertEquals(from, amount.getString("issuer"))
+        }
 
     @Test
-    fun `buildTxs builds cancel order via WalletSdk`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                emptyList(),
-                emptyList(),
-                listOf(SwtcBatchTransactions.CancelOrder(42L))
-            )
+    fun `buildTxs includes memo in text-plain format`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, "hello")),
+                    emptyList(),
+                    emptyList()
+                )
 
-        assertEquals(1, txs.size)
-        assertEquals("OfferCancel", txs[0].getString("TransactionType"))
-    }
+            val memo = txs[0].getJSONArray("Memos").getJSONObject(0).getJSONObject("Memo")
+            assertEquals("hello", memo.getString("MemoData"))
+            assertEquals("text/plain", memo.getString("MemoType"))
+        }
 
     @Test
-    fun `buildTxs preserves order transfers then createOrders then cancelOrders`() = runTest {
-        val txs =
-            SwtcBatchTransactions.buildTxs(
-                from,
-                listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)),
-                listOf(SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)),
-                listOf(SwtcBatchTransactions.CancelOrder(42L))
-            )
+    fun `buildTxs builds create order via WalletSdk`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    emptyList(),
+                    listOf(SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)),
+                    emptyList()
+                )
 
-        assertEquals(3, txs.size)
-        assertEquals("Payment", txs[0].getString("TransactionType"))
-        assertEquals("OfferCreate", txs[1].getString("TransactionType"))
-        assertEquals("OfferCancel", txs[2].getString("TransactionType"))
-    }
+            assertEquals(1, txs.size)
+            assertEquals("OfferCreate", txs[0].getString("TransactionType"))
+        }
+
+    @Test
+    fun `buildTxs builds cancel order via WalletSdk`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    emptyList(),
+                    emptyList(),
+                    listOf(SwtcBatchTransactions.CancelOrder(42L))
+                )
+
+            assertEquals(1, txs.size)
+            assertEquals("OfferCancel", txs[0].getString("TransactionType"))
+        }
+
+    @Test
+    fun `buildTxs preserves order transfers then createOrders then cancelOrders`() =
+        runTest {
+            val txs =
+                SwtcBatchTransactions.buildTxs(
+                    from,
+                    listOf(SwtcBatchTransactions.Transfer(dest, "1", "SWT", null, null)),
+                    listOf(SwtcBatchTransactions.CreateOrder("1", "SWT", "CCC", "100", "buy", null, from)),
+                    listOf(SwtcBatchTransactions.CancelOrder(42L))
+                )
+
+            assertEquals(3, txs.size)
+            assertEquals("Payment", txs[0].getString("TransactionType"))
+            assertEquals("OfferCreate", txs[1].getString("TransactionType"))
+            assertEquals("OfferCancel", txs[2].getString("TransactionType"))
+        }
 }

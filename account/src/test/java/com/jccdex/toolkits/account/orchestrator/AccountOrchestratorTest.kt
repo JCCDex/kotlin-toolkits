@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.account.AccountTestDatabase
 import com.jccdex.toolkits.account.AccountTestFixtures
+import com.jccdex.toolkits.account.storage.room.UnknownChainCodeException
+import com.jccdex.toolkits.account.store.IAccountStore
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.model.Path
+import com.jccdex.toolkits.vault.VaultAuthLockedException
 import com.jccdex.toolkits.vault.VaultRepository
 import com.jccdex.toolkits.vault.model.VaultPrivateKeyImport
 import com.jccdex.toolkits.wallet.model.GenerateHDWalletResult
@@ -16,11 +19,13 @@ import com.jccdex.toolkits.wallet.model.TraditionalDeriveResult
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.slot
 import io.mockk.unmockkAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.After
@@ -29,7 +34,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import com.jccdex.toolkits.wallet.model.Path as WalletPath
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], manifest = Config.NONE)
@@ -114,7 +118,7 @@ class AccountOrchestratorTest {
                             "opinion anger hello tool program mind bundle front water elite increase exotic",
                             "english"
                         ),
-                    path = WalletPath(chain = ChainType.ETH.bip44Code)
+                    path = Path(chain = ChainType.ETH.bip44Code)
                 )
 
             val result = orchestrator.importSingleAccount(derived, ChainType.ETH, "mnemonic", false, null)
@@ -206,6 +210,34 @@ class AccountOrchestratorTest {
         }
 
     @Test
+    fun importHdWallet_clearExisting_doesNotClearWhenRootExists() =
+        runTest {
+            val root = AccountTestFixtures.hdRoot(address = "jRoot")
+            testDb.store.addAccount(root)
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRoot",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+
+            val result =
+                orchestrator.importHdWallet(
+                    hd,
+                    "wallet",
+                    "new-pass".toByteArray(),
+                    clearExisting = true,
+                    clearExistingPassword = "old-pass".toByteArray()
+                )
+
+            assertThat(result).isEqualTo(AccountOperationResult.Error(AccountOperationError.AccountAlreadyExists))
+            coVerify(exactly = 0) { vault.clearAllData(any()) }
+            assertThat(testDb.store.findRootAccountByAddress("jRoot")).isNotNull
+        }
+
+    @Test
     fun importHdWallet_persistsRootAndChildren() =
         runTest {
             coEvery { vault.hasPassword() } returns true
@@ -216,7 +248,7 @@ class AccountOrchestratorTest {
                 SubWallet(
                     chain = ChainType.ETH.bip44Code,
                     address = "0xethchild",
-                    path = WalletPath(ChainType.ETH.bip44Code, index = 0),
+                    path = Path(ChainType.ETH.bip44Code, index = 0),
                     keypair = Keypair("pk-eth", "pub-eth")
                 )
             val hd =
@@ -252,7 +284,7 @@ class AccountOrchestratorTest {
                 SubWallet(
                     chain = ChainType.ETH.bip44Code,
                     address = "0xdup",
-                    path = WalletPath(ChainType.ETH.bip44Code, index = 0),
+                    path = Path(ChainType.ETH.bip44Code, index = 0),
                     keypair = Keypair("pk-dup", "pub-dup")
                 )
             val hd =
@@ -277,7 +309,8 @@ class AccountOrchestratorTest {
             assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
             assertThat(testDb.store.findByAddress("0xdup", ChainType.ETH)).isNotNull
             coVerify { vault.importPrivateKeys(capture(importedKeys)) }
-            assertThat(importedKeys.captured).hasSize(1)
+            // M-22A: dedup precedes keys assembly — the repeated child's key is NOT imported.
+            assertThat(importedKeys.captured).hasSize(0)
         }
 
     @Test
@@ -414,6 +447,31 @@ class AccountOrchestratorTest {
         }
 
     @Test
+    fun importSubAccount_doesNotPersistEmptyKeyToVault() =
+        runTest {
+            val root = AccountTestFixtures.hdRoot(id = "root-id2", address = "jRoot2")
+            testDb.store.addAccount(root)
+
+            val derived =
+                DerivedSubAccount(
+                    address = "0xsub-novault",
+                    chain = ChainType.ETH,
+                    path = Path(ChainType.ETH.bip44Code, index = 1),
+                    rootAccountId = root.id,
+                    publicKey = "pub"
+                )
+
+            val result = orchestrator.importSubAccount(derived, "sub")
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            val id = (result as AccountOperationResult.Success).value
+            assertThat(testDb.store.findById(id)).isNotNull
+            // Sub-account carries no real private key: it must NOT be written to vault, otherwise
+            // the empty key would permanently block a later real-key import for this address.
+            coVerify(exactly = 0) { vault.importPrivateKey(any(), any()) }
+        }
+
+    @Test
     fun removeAccount_wrongPassword() =
         runTest {
             val account = AccountTestFixtures.traditional(id = "rm-id")
@@ -493,7 +551,7 @@ class AccountOrchestratorTest {
                 SubWallet(
                     ChainType.ETH.bip44Code,
                     "0xexisting",
-                    WalletPath(ChainType.ETH.bip44Code, index = 1),
+                    Path(ChainType.ETH.bip44Code, index = 1),
                     Keypair("pk1", "pub1")
                 )
             coEvery {
@@ -502,7 +560,7 @@ class AccountOrchestratorTest {
                 SubWallet(
                     ChainType.ETH.bip44Code,
                     "0xnewderived",
-                    WalletPath(ChainType.ETH.bip44Code, index = 2),
+                    Path(ChainType.ETH.bip44Code, index = 2),
                     Keypair("pk2", "pub2")
                 )
 
@@ -527,7 +585,7 @@ class AccountOrchestratorTest {
                 SubWallet(
                     ChainType.ETH.bip44Code,
                     "0xat3",
-                    WalletPath(ChainType.ETH.bip44Code, index = 3),
+                    Path(ChainType.ETH.bip44Code, index = 3),
                     Keypair("pk", "pub")
                 )
 
@@ -606,5 +664,310 @@ class AccountOrchestratorTest {
             assertThat((result as AccountOperationResult.Error).error)
                 .isInstanceOf(AccountOperationError.WrongPassword::class.java)
             assertThat(testDb.store.findById("keep")).isNotNull
+        }
+
+    // ── M-18A: full duplicate check by address (+chain) across account types ──
+
+    @Test
+    fun importSingleAccount_rejectsWhenHdRootWithSameAddressExists() =
+        runTest {
+            val address = "0xSharedAddr"
+            testDb.store.addAccount(AccountTestFixtures.hdRoot(address = address))
+
+            val derived =
+                TraditionalDeriveResult(
+                    address = address,
+                    keypair = Keypair("priv", "pub")
+                )
+            val result =
+                orchestrator.importSingleAccount(
+                    derived = derived,
+                    chain = ChainType.SWTC,
+                    name = "trad",
+                    isHD = false,
+                    parentId = null
+                )
+
+            assertThat(result)
+                .isEqualTo(AccountOperationResult.Error(AccountOperationError.AddressAlreadyExists))
+        }
+
+    @Test
+    fun importHdWallet_rejectsWhenTraditionalAccountWithSameAddressExists() =
+        runTest {
+            val address = "0xSharedAddr"
+            testDb.store.addAccount(
+                AccountTestFixtures.traditional(address = address, chain = ChainType.SWTC)
+            )
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = address,
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+            val result = orchestrator.importHdWallet(hd, "wallet", "pass".toByteArray())
+
+            assertThat(result)
+                .isEqualTo(AccountOperationResult.Error(AccountOperationError.AccountAlreadyExists))
+        }
+
+    // ── M-21A: vault auth lock is surfaced as a typed domain error ──
+
+    @Test
+    fun runOperation_returnsVaultLockedWhenVaultAuthLocked() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.clearAllData(any()) } throws VaultAuthLockedException(5000)
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jFresh",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+            val result =
+                orchestrator.importHdWallet(
+                    hd,
+                    "wallet",
+                    "pass".toByteArray(),
+                    clearExisting = true,
+                    clearExistingPassword = "oldpass".toByteArray()
+                )
+
+            assertThat(result)
+                .isEqualTo(AccountOperationResult.Error(AccountOperationError.VaultLocked(5000)))
+        }
+
+    // ── M-13A: compensating rollback + orphan reconciliation ──
+
+    @Test
+    fun importHdWallet_compensatesVaultImportWhenStoreCommitFails() =
+        runTest {
+            val store = mockk<IAccountStore>(relaxed = true)
+            val orch = AccountOrchestrator(store, vault)
+            every { vault.isUnlocked } returns true
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+            coEvery { store.findByAddress(any(), any()) } returns null
+            coEvery { store.findNonRootAccount(any(), any()) } returns null
+            coEvery { store.addAccounts(any()) } throws IllegalStateException("store commit failed")
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootComp",
+                    language = "english",
+                    keypair = Keypair("root-priv", "root-pub"),
+                    accounts =
+                        listOf(
+                            SubWallet(
+                                chain = ChainType.ETH.bip44Code,
+                                address = "0xchild",
+                                path = Path(ChainType.ETH.bip44Code, index = 0),
+                                keypair = Keypair("child-priv", "child-pub")
+                            )
+                        )
+                )
+
+            val result = orch.importHdWallet(hd, "My HD", "pass".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            // M-13A: unlocked-session rollback (password buffer may already be wiped).
+            coVerify { vault.removeAddressUnlocked("jRootComp") }
+            coVerify { vault.removeAddressUnlocked("0xchild") }
+            coVerify(exactly = 0) { vault.removeAddress(any(), any()) }
+        }
+
+    @Test
+    fun importHdWallet_compensatesWithUnlockedRollbackWhenPasswordNull() =
+        runTest {
+            // Additive HD import: vault already has a password, caller passes password=null.
+            // Rollback must still run via the unlocked session.
+            val store = mockk<IAccountStore>(relaxed = true)
+            val orch = AccountOrchestrator(store, vault)
+            every { vault.isUnlocked } returns true
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+            coEvery { store.findByAddress(any(), any()) } returns null
+            coEvery { store.findNonRootAccount(any(), any()) } returns null
+            coEvery { store.addAccounts(any()) } throws IllegalStateException("store commit failed")
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootAdditive",
+                    language = "english",
+                    keypair = Keypair("root-priv", "root-pub"),
+                    accounts = emptyList()
+                )
+
+            val result = orch.importHdWallet(hd, "My HD", password = null)
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            coVerify { vault.removeAddressUnlocked("jRootAdditive") }
+            coVerify(exactly = 0) { vault.removeAddress(any(), any()) }
+        }
+
+    @Test
+    fun importHdWallet_skipsRollbackWhenVaultLocked() =
+        runTest {
+            val store = mockk<IAccountStore>(relaxed = true)
+            val orch = AccountOrchestrator(store, vault)
+            every { vault.isUnlocked } returns false
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+            coEvery { store.findByAddress(any(), any()) } returns null
+            coEvery { store.findNonRootAccount(any(), any()) } returns null
+            coEvery { store.addAccounts(any()) } throws IllegalStateException("store commit failed")
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootLocked",
+                    language = "english",
+                    keypair = Keypair("root-priv", "root-pub"),
+                    accounts = emptyList()
+                )
+
+            val result = orch.importHdWallet(hd, "My HD", "pass".toByteArray())
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            coVerify(exactly = 0) { vault.removeAddressUnlocked(any()) }
+            coVerify(exactly = 0) { vault.removeAddress(any(), any()) }
+        }
+
+    @Test
+    fun importHdWallet_compensatesAfterInitializePasswordWipesCallerBuffer() =
+        runTest {
+            // New-wallet path: initializePassword wipes the caller's password array; rollback must
+            // still succeed via the unlocked session (not removeAddress with a zeroed buffer).
+            val store = mockk<IAccountStore>(relaxed = true)
+            val orch = AccountOrchestrator(store, vault)
+            val password = "pass".toByteArray()
+            every { vault.isUnlocked } returns true
+            coEvery { vault.hasPassword() } returns false
+            coEvery { vault.initializePassword(any()) } answers {
+                firstArg<ByteArray>().fill(0)
+            }
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+            coEvery { store.findByAddress(any(), any()) } returns null
+            coEvery { store.findNonRootAccount(any(), any()) } returns null
+            coEvery { store.addAccounts(any()) } throws IllegalStateException("store commit failed")
+
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jRootWipe",
+                    language = "english",
+                    keypair = Keypair("root-priv", "root-pub"),
+                    accounts =
+                        listOf(
+                            SubWallet(
+                                chain = ChainType.ETH.bip44Code,
+                                address = "0xchildWipe",
+                                path = Path(ChainType.ETH.bip44Code, index = 0),
+                                keypair = Keypair("child-priv", "child-pub")
+                            )
+                        )
+                )
+
+            val result = orch.importHdWallet(hd, "My HD", password)
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Error::class.java)
+            assertThat(password.all { it == 0.toByte() }).isTrue()
+            coVerify { vault.removeAddressUnlocked("jRootWipe") }
+            coVerify { vault.removeAddressUnlocked("0xchildWipe") }
+            coVerify(exactly = 0) { vault.removeAddress(any(), any()) }
+        }
+
+    @Test
+    fun listOrphanKeys_returnsVaultKeysWithoutStoreRecords() =
+        runTest {
+            testDb.store.addAccount(
+                AccountTestFixtures.hdSub(
+                    id = "existing",
+                    parentId = "root",
+                    address = "0xknown"
+                )
+            )
+            coEvery { vault.listAccounts() } returns listOf("0xknown", "0xorphan")
+
+            val orphans = orchestrator.listOrphanKeys()
+
+            assertThat(orphans).containsExactly("0xorphan")
+        }
+
+    @Test
+    fun listOrphanKeys_usesRawAddresses_evenWhenStoreHasUnknownChainRow() =
+        runTest {
+            val store = mockk<IAccountStore>(relaxed = true)
+            val orch = AccountOrchestrator(store, vault)
+            // A corrupt row makes toWalletAccount throw — listOrphanKeys must not collect it
+            // (M-13A + M-15A: it compares raw addresses via listAllAddresses).
+            every { store.accounts } returns flow { throw UnknownChainCodeException(-1L) }
+            coEvery { store.listAllAddresses() } returns listOf("0xknown")
+            coEvery { vault.listAccounts() } returns listOf("0xknown", "0xorphan")
+
+            val orphans = orch.listOrphanKeys()
+
+            assertThat(orphans).containsExactly("0xorphan")
+        }
+
+    // ── M-17A: clearWalletData must not wipe the caller's password array ──
+
+    @Test
+    fun clearWalletData_doesNotWipeCallerPasswordArray() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true
+            coEvery { vault.clearAllData(any()) } returns mockk(relaxed = true)
+            val password = "secret".toByteArray()
+            val captured = slot<ByteArray>()
+
+            val result = orchestrator.clearWalletData(password)
+
+            assertThat(result).isEqualTo(AccountOperationResult.Success(Unit))
+            coVerify { vault.clearAllData(capture(captured)) }
+            // M-17A: a copy is passed, so the caller's array is not the instance vault wipes.
+            assertThat(captured.captured).isNotSameAs(password)
+        }
+
+    @Test
+    fun importHdWallet_clearExisting_doesNotWipeClearExistingPasswordArray() =
+        runTest {
+            coEvery { vault.hasPassword() } returns true andThen false andThen false
+            coEvery { vault.clearAllData(any()) } returns mockk(relaxed = true)
+            coEvery { vault.importMnemonic(any(), any(), any(), any(), any()) } returns Unit
+            coEvery { vault.importPrivateKeys(any()) } returns Unit
+
+            val clearPassword = "old-pass".toByteArray()
+            val captured = slot<ByteArray>()
+            val hd =
+                GenerateHDWalletResult(
+                    mnemonic = "mnemonic words here for test only twelve",
+                    address = "jNewAddress",
+                    language = "english",
+                    keypair = Keypair("priv", "pub")
+                )
+
+            val result =
+                orchestrator.importHdWallet(
+                    hd,
+                    "wallet",
+                    "new-pass".toByteArray(),
+                    clearExisting = true,
+                    clearExistingPassword = clearPassword
+                )
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify { vault.clearAllData(capture(captured)) }
+            assertThat(captured.captured).isNotSameAs(clearPassword)
+            assertThat(captured.captured.contentEquals(clearPassword)).isTrue()
         }
 }

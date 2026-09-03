@@ -3,6 +3,7 @@ package com.jccdex.toolkits.dappconnect.middleware
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
 
 /**
  * `swtc_batchTransactions` 的纯逻辑：入参解析（含字段白名单）、语义校验、三类交易构建。
@@ -12,9 +13,22 @@ import org.json.JSONObject
  * 调用方（[SwtcMiddleware.batchTransactions]）负责鉴权、取 secret、send/return 编排。
  */
 object SwtcBatchTransactions {
-
     /** 对齐 @swtc/common 的 CURRENCY_RE：3-6 位字母数字，或 40 位十六进制大写 */
     val CURRENCY_REGEX = Regex("^([a-zA-Z0-9]{3,6}|[A-F0-9]{40})$")
+
+    // M-D8：防御性上限（远高于任何真实交易量，仅挡「格式合法但金额荒谬」的批量请求；可调）。
+
+    /** 单笔转账金额上限（SWTC 单位）。 */
+    val MAX_TRANSFER_AMOUNT: BigDecimal = BigDecimal("1000000000000") // 1e12
+
+    /** 批次转账总额上限（SWTC 单位），由 [SwtcMiddleware.batchTransactions] 汇总校验。 */
+    val MAX_BATCH_TOTAL_AMOUNT: BigDecimal = BigDecimal("1000000000000") // 1e12
+
+    /** memo 白名单最大长度（字符）。 */
+    const val MAX_MEMO_LENGTH: Int = 64
+
+    /** 金额小数位上限——SWTC 本币 6 位小数，对齐 @swtc/utils。 */
+    const val MAX_AMOUNT_SCALE: Int = 6
 
     data class Transfer(
         val to: String,
@@ -42,9 +56,22 @@ object SwtcBatchTransactions {
         if (arr == null) return emptyList()
         val allowed = setOf("to", "amount", "currency", "issuer", "memo")
         return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
+            val o =
+                arr.optJSONObject(i)
+                    ?: throw IllegalArgumentException("Invalid batch transfers")
             if (!o.keys().asSequence().all { it in allowed }) throw IllegalArgumentException("Invalid batch transfers")
-            Transfer(o.optString("to"), o.optString("amount"), o.optString("currency").ifEmpty { null }, o.optString("issuer").ifEmpty { null }, o.optString("memo").ifEmpty { null })
+            val memo = o.optString("memo")
+            // M-D8: memo 白名单长度——超长会撑爆链上 MemoData 字段。
+            if (memo.length > MAX_MEMO_LENGTH) throw IllegalArgumentException("Invalid batch transfers")
+            Transfer(
+                o.optString("to"),
+                o.optString("amount"),
+                o.optString("currency").ifEmpty {
+                    null
+                },
+                o.optString("issuer").ifEmpty { null },
+                memo.ifEmpty { null }
+            )
         }
     }
 
@@ -52,9 +79,29 @@ object SwtcBatchTransactions {
         if (arr == null) return emptyList()
         val allowed = setOf("amount", "base", "counter", "sum", "type", "platform", "issuer")
         return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            if (!o.keys().asSequence().all { it in allowed }) throw IllegalArgumentException("Invalid batch createOrders")
-            CreateOrder(o.optString("amount"), o.optString("base"), o.optString("counter"), o.optString("sum"), o.optString("type"), o.optString("platform").ifEmpty { null }, o.optString("issuer").ifEmpty { null })
+            val o =
+                arr.optJSONObject(i)
+                    ?: throw IllegalArgumentException("Invalid batch createOrders")
+            if (!o.keys().asSequence().all { it in allowed }) {
+                throw IllegalArgumentException(
+                    "Invalid batch createOrders"
+                )
+            }
+            CreateOrder(
+                o.optString(
+                    "amount"
+                ),
+                o.optString(
+                    "base"
+                ),
+                o.optString("counter"),
+                o.optString("sum"),
+                o.optString("type"),
+                o.optString("platform").ifEmpty {
+                    null
+                },
+                o.optString("issuer").ifEmpty { null }
+            )
         }
     }
 
@@ -62,18 +109,29 @@ object SwtcBatchTransactions {
         if (arr == null) return emptyList()
         val allowed = setOf("sequence")
         return (0 until arr.length()).map { i ->
-            val o = arr.getJSONObject(i)
-            if (!o.keys().asSequence().all { it in allowed }) throw IllegalArgumentException("Invalid batch cancelOrders")
+            val o =
+                arr.optJSONObject(i)
+                    ?: throw IllegalArgumentException("Invalid batch cancelOrders")
+            if (!o.keys().asSequence().all { it in allowed }) {
+                throw IllegalArgumentException(
+                    "Invalid batch cancelOrders"
+                )
+            }
             CancelOrder(o.optLong("sequence", -1L))
         }
     }
 
     // ── 语义校验（对齐插件 @swtc/utils isValidAmount）──
 
-    suspend fun isValidTransfer(t: Transfer): Boolean =
-        isPositiveDecimal(t.amount) &&
+    suspend fun isValidTransfer(t: Transfer): Boolean {
+        // M-D8: 精度（scale≤6）仅对 native SWT/SWTC（无 issuer）强制；非 native token 只卡金额
+        // 上限，不卡精度（合法精度可 >6 位）。
+        val normalizedCurrency = t.currency?.let { if (it == "SWTC") "SWT" else it }
+        val isNative = normalizedCurrency == "SWT" && t.issuer.isNullOrEmpty()
+        return isBoundedPositiveAmount(t.amount, enforceScale = isNative) &&
             isValidCurrencyAndIssuer(t.currency, t.issuer, defaultIssuerIfNonNative = false) &&
             WalletSdk.isValidAddress(t.to)
+    }
 
     suspend fun isValidCreateOrder(o: CreateOrder): Boolean =
         (o.type == "buy" || o.type == "sell") &&
@@ -87,7 +145,10 @@ object SwtcBatchTransactions {
      * - native 币种（SWT/SWTC）：无 issuer 概念，忽略传入 issuer；
      * - 非 native：用传入 issuer 或默认发行方 jGa9J9...
      */
-    private suspend fun isValidOrderSide(currency: String, issuer: String?): Boolean {
+    private suspend fun isValidOrderSide(
+        currency: String,
+        issuer: String?
+    ): Boolean {
         val normalizedCurrency = if (currency == "SWTC") "SWT" else currency
         if (!isValidCurrency(normalizedCurrency)) return false
         return if (normalizedCurrency == "SWT") {
@@ -100,6 +161,21 @@ object SwtcBatchTransactions {
 
     fun isPositiveDecimal(value: String): Boolean =
         value.toBigDecimalOrNull()?.let { it > java.math.BigDecimal.ZERO } ?: false
+
+    /**
+     * M-D8: 正十进制 + 单笔金额上限 +（可选）小数位上限（对齐 @swtc/utils 6 位精度）。
+     * 挡「格式合法但金额巨大 / 精度荒谬」的单笔转账。精度仅对 native SWT 强制——非 native token
+     * 的合法精度可能 >6 位（用户决策 2026-08-26）。
+     */
+    fun isBoundedPositiveAmount(
+        value: String,
+        enforceScale: Boolean
+    ): Boolean {
+        val amount = value.toBigDecimalOrNull() ?: return false
+        return amount > BigDecimal.ZERO &&
+            amount <= MAX_TRANSFER_AMOUNT &&
+            (!enforceScale || amount.scale() <= MAX_AMOUNT_SCALE)
+    }
 
     fun isValidCurrency(currency: String): Boolean = CURRENCY_REGEX.matches(currency)
 
@@ -115,8 +191,11 @@ object SwtcBatchTransactions {
             normalizedIssuer.isEmpty()
         } else {
             val effectiveIssuer =
-                if (normalizedIssuer.isEmpty() && defaultIssuerIfNonNative) "jGa9J9TkqtBcUoHe2zqhVFFbgUVED6o9or"
-                else normalizedIssuer
+                if (normalizedIssuer.isEmpty() && defaultIssuerIfNonNative) {
+                    "jGa9J9TkqtBcUoHe2zqhVFFbgUVED6o9or"
+                } else {
+                    normalizedIssuer
+                }
             effectiveIssuer.isNotEmpty() && WalletSdk.isValidAddress(effectiveIssuer)
         }
     }

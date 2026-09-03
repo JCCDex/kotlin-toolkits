@@ -2,17 +2,19 @@ package com.jccdex.toolkits.dappconnect.middleware
 
 import android.util.Log
 import com.jccdex.toolkits.core.model.ChainType
-import com.jccdex.toolkits.core.model.WalletAccount
 import com.jccdex.toolkits.dappconnect.WebOrigin
+import com.jccdex.toolkits.dappconnect.model.UnauthorizedException
 import com.jccdex.toolkits.dappconnect.model.UserRejectedException
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.NodeProvider
 import com.jccdex.toolkits.dappconnect.provider.SecretProvider
 import com.jccdex.toolkits.wallet.sdk.WalletSdk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
 
 /**
  * SWTC RPC Middleware - handles SWTC-specific RPC methods.
@@ -25,12 +27,19 @@ class SwtcMiddleware(
 ) : ISwtcMiddleware {
     companion object {
         private const val TAG = "SwtcMiddleware"
+        private const val MAX_BATCH_SIZE = 50
     }
 
     @Volatile private var requestAccountsCallback: RequestAccountsCallback? = null
 
+    @Volatile private var transactionConfirmCallback: TransactionConfirmCallback? = null
+
     override fun setRequestAccountsCallback(callback: RequestAccountsCallback?) {
         requestAccountsCallback = callback
+    }
+
+    override fun setTransactionConfirmCallback(callback: TransactionConfirmCallback?) {
+        transactionConfirmCallback = callback
     }
 
     /**
@@ -90,6 +99,25 @@ class SwtcMiddleware(
 
         Log.d(TAG, "Processing transaction")
 
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SendTransaction(
+                chain = ChainType.SWTC,
+                origin = origin,
+                to = txParams.optString("Destination", null),
+                value = txParams.optString("Amount", null),
+                data = null,
+                gas = null,
+                gasPrice = null,
+                nonce = txParams.optString("Sequence", null),
+                txParams = txParams
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the sendTransaction request")
+        }
+
         // Get sequence if not provided
         if (!txParams.has("Sequence")) {
             val sequence = nodeProvider.fetchSequence(account)
@@ -97,8 +125,9 @@ class SwtcMiddleware(
         }
 
         // Get secret
-        val secret = secretProvider.getSecretForAddress(account, origin)
-            ?: throw IllegalStateException("Failed to get secret for address: $account")
+        val secret =
+            secretProvider.getSecretForAddress(account, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         // Sign transaction using WalletSdk
         val blob = WalletSdk.signTransaction(txParams, secret)
@@ -116,7 +145,9 @@ class SwtcMiddleware(
     ): JSONObject {
         Log.d(TAG, "multiSign called from origin: $origin")
 
-        val account = msParams.getString("account")
+        val account =
+            msParams.optString("account").takeIf { it.isNotBlank() }
+                ?: throw IllegalArgumentException("Missing or invalid account in multi-sign parameters")
 
         // Verify account exists in wallet
         val accounts = accountProvider.accounts.first()
@@ -131,12 +162,28 @@ class SwtcMiddleware(
 
         Log.d(TAG, "Processing multi-sign")
 
-        // Get secret for signing
-        val secret = secretProvider.getSecretForAddress(account, origin)
-            ?: throw IllegalStateException("Failed to get secret for address: $account")
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val tx =
+            msParams.optJSONObject("tx")
+                ?: throw IllegalArgumentException("Missing or invalid tx in multi-sign parameters")
+        val request =
+            TransactionRequest.SignMessage(
+                chain = ChainType.SWTC,
+                origin = origin,
+                address = account,
+                message = tx.toString(),
+                type = SignType.SIGN_MESSAGE
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the multiSign request")
+        }
 
-        // Get tx from multi-sign parameters
-        val tx = msParams.getJSONObject("tx")
+        // Get secret for signing
+        val secret =
+            secretProvider.getSecretForAddress(account, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         // Sign using WalletSdk
         val result = WalletSdk.multiSign(tx, secret)
@@ -170,9 +217,25 @@ class SwtcMiddleware(
 
         Log.d(TAG, "Signing message")
 
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SignMessage(
+                chain = ChainType.SWTC,
+                origin = origin,
+                address = from,
+                message = data,
+                type = SignType.SIGN_MESSAGE
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the signMessage request")
+        }
+
         // Get secret for signing
-        val secret = secretProvider.getSecretForAddress(from, origin)
-            ?: throw IllegalStateException("Failed to get secret for address: $from")
+        val secret =
+            secretProvider.getSecretForAddress(from, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         // Sign message using WalletSdk
         val signature = WalletSdk.signMessage(from, data, secret)
@@ -211,14 +274,14 @@ class SwtcMiddleware(
     }
 
     /**
-     * Send transaction with provided password (for native UI usage)
+     * Send SWTC transaction for **native UI** (host already collected vault auth).
+     * Secret is resolved via [SecretProvider.getSecretForAddress]; the password is not passed here.
      */
-    suspend fun sendTransactionWithPassword(
+    suspend fun sendTransactionForNative(
         txParams: JSONObject,
-        password: String,
         origin: String
     ): String {
-        Log.d(TAG, "sendTransactionWithPassword from origin: $origin")
+        Log.d(TAG, "sendTransactionForNative from origin: $origin")
 
         val account = txParams.getString("Account")
 
@@ -236,10 +299,10 @@ class SwtcMiddleware(
             txParams.put("Sequence", sequence)
         }
 
-        // Note: This method assumes secretProvider can work with password directly
-        // In practice, this might need a different approach
-        val secret = secretProvider.getSecretForAddress(account, origin)
-            ?: throw IllegalStateException("Failed to get secret for address: $account")
+        // Secret comes from SecretProvider (vault session / host auth), not a password parameter.
+        val secret =
+            secretProvider.getSecretForAddress(account, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         val blob = WalletSdk.signTransaction(txParams, secret)
 
@@ -247,18 +310,16 @@ class SwtcMiddleware(
     }
 
     /**
-     * Send NFT transaction for **native UI** (password already collected by the host).
-     * Uses [WebOrigin.WALLET_INTERNAL] instead of a blank origin so secret providers can
-     * distinguish intentional in-app access from missing DApp origin (M-18).
+     * Send SWTC NFT transfer for **native UI** (host already collected vault auth).
+     * Secret is resolved via [SecretProvider.getSecretForAddress] with [WebOrigin.WALLET_INTERNAL].
      */
-    suspend fun sendNftTransactionWithPassword(
+    suspend fun sendNftTransactionForNative(
         address: String,
         to: String,
         tokenId: String,
-        memo: String,
-        password: String
+        memo: String
     ): String {
-        Log.d(TAG, "sendNftTransactionWithPassword NFT transfer")
+        Log.d(TAG, "sendNftTransactionForNative NFT transfer")
 
         val accounts = accountProvider.accounts.first()
         val walletAccount =
@@ -279,8 +340,9 @@ class SwtcMiddleware(
             txParams.put("Sequence", sequence)
         }
 
-        val secret = secretProvider.getSecretForAddress(address, WebOrigin.WALLET_INTERNAL)
-            ?: throw IllegalStateException("Failed to get secret for address: $address")
+        val secret =
+            secretProvider.getSecretForAddress(address, WebOrigin.WALLET_INTERNAL)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         val signedTxBlob = WalletSdk.signTransaction(txParams, secret)
 
@@ -315,21 +377,58 @@ class SwtcMiddleware(
             )
         }
 
-        val accounts = accountProvider.accounts.first()
+        val totalCount = transfers.size + createOrders.size + cancelOrders.size
+        if (totalCount > MAX_BATCH_SIZE) {
+            throw IllegalArgumentException("Batch exceeds max size of $MAX_BATCH_SIZE transactions")
+        }
+
+        // 语义校验（对齐 app 层：金额 / currency-issuer / 地址 / type）
+        transfers.forEach {
+            if (!SwtcBatchTransactions.isValidTransfer(it)) throw IllegalArgumentException("Invalid batch transfers")
+        }
+        createOrders.forEach {
+            if (!SwtcBatchTransactions.isValidCreateOrder(
+                    it
+                )
+            ) {
+                throw IllegalArgumentException("Invalid batch createOrders")
+            }
+        }
+        cancelOrders.forEach { if (it.sequence < 0) throw IllegalArgumentException("Invalid batch cancelOrders") }
+
+        // M-D8: 批次转账总额上限——单笔已在 isValidTransfer 上限内，但最多 50 笔累加仍可能
+        // 构成「格式合法但总额巨大」的请求；超出即拒，防恶意批次烧手续费/广播垃圾交易。
+        val totalAmount = transfers.fold(BigDecimal.ZERO) { acc, t -> acc + t.amount.toBigDecimal() }
+        if (totalAmount > SwtcBatchTransactions.MAX_BATCH_TOTAL_AMOUNT) {
+            throw IllegalArgumentException("Batch total transfer amount exceeds limit")
+        }
+
+        // Confirm before account lookup so the host dialog can appear without waiting on accounts Flow/DB.
+        val cb =
+            transactionConfirmCallback
+                ?: throw UserRejectedException("TransactionConfirmCallback is not set")
+        val request =
+            TransactionRequest.SwtcBatchTransaction(
+                chain = ChainType.SWTC,
+                origin = origin,
+                totalCount = totalCount,
+                totalAmount = totalAmount.toString(),
+                transfers = transfers
+            )
+        if (!cb.onConfirm(request)) {
+            throw UserRejectedException("User rejected the batchTransactions request")
+        }
+
         val walletAccount =
-            accounts.find { it.address == from }
+            accountProvider.getAccountByAddress(from)
                 ?: throw IllegalArgumentException("Account not found in wallet: $from")
         if (walletAccount.chain.bip44Code != ChainType.SWTC.bip44Code) {
             throw IllegalArgumentException("Account is not a SWTC account: $from")
         }
 
-        // 语义校验（对齐 app 层：金额 / currency-issuer / 地址 / type）
-        transfers.forEach { if (!SwtcBatchTransactions.isValidTransfer(it)) throw IllegalArgumentException("Invalid batch transfers") }
-        createOrders.forEach { if (!SwtcBatchTransactions.isValidCreateOrder(it)) throw IllegalArgumentException("Invalid batch createOrders") }
-        cancelOrders.forEach { if (it.sequence < 0) throw IllegalArgumentException("Invalid batch cancelOrders") }
-
-        val secret = secretProvider.getSecretForAddress(from, origin)
-            ?: throw IllegalStateException("Failed to get secret for address: $from")
+        val secret =
+            secretProvider.getSecretForAddress(from, origin)
+                ?: throw UnauthorizedException("Password required to sign transaction")
 
         val txs = SwtcBatchTransactions.buildTxs(from, transfers, createOrders, cancelOrders)
 
@@ -350,6 +449,8 @@ class SwtcMiddleware(
                     val hash = nodeProvider.sendRawTransaction(blob)
                     results.put(JSONObject().apply { put("hash", hash) })
                     currentSeq++
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     results.put(JSONObject().apply { put("error", e.message ?: "failed") })
                     currentSeq = nodeProvider.fetchSequence(from)
@@ -358,5 +459,4 @@ class SwtcMiddleware(
         }
         return results
     }
-
 }

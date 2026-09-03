@@ -10,7 +10,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ApkDigestTest {
-
     @Test
     fun `sha256Hex of bytes returns lowercase hex`() {
         val hash = ApkDigest.sha256Hex("hello".toByteArray())
@@ -66,7 +65,6 @@ class ApkDigestTest {
 }
 
 class ReleaseChecksumsParserTest {
-
     @Test
     fun `parse valid checksums succeeds`() {
         val text =
@@ -155,7 +153,6 @@ class ReleaseChecksumsParserTest {
 }
 
 class JniVerifierTest {
-
     @Test
     fun `hashEquals matches identical strings`() {
         assertTrue(JniVerifier.hashEquals("abc", "abc"))
@@ -170,6 +167,12 @@ class JniVerifierTest {
     @Test
     fun `hashEquals returns false for different values`() {
         assertFalse(JniVerifier.hashEquals("abc", "abd"))
+    }
+
+    @Test
+    fun `hashEquals returns false for different lengths`() {
+        assertFalse(JniVerifier.hashEquals("abc", "abcd"))
+        assertFalse(JniVerifier.hashEquals("", "abc"))
     }
 
     @Test
@@ -195,7 +198,6 @@ class JniVerifierTest {
 }
 
 class ApkIntegrityVerifierTest {
-
     private val sampleManifest =
         OfficialReleaseManifest(
             signingCertSha256 = "cert-hash",
@@ -314,5 +316,37 @@ class ApkIntegrityVerifierTest {
             )
 
         assertEquals(ApkVerificationResult.PassedSignatureOnly, result)
+    }
+
+    @Test
+    fun `copyStreamToTemp succeeds under maxBytes`() {
+        val temp = File.createTempFile("apk_mw2_ok_", ".apk")
+        try {
+            val result =
+                ApkIntegrityVerifier.copyStreamToTemp(
+                    ByteArrayInputStream("hello".toByteArray()),
+                    temp,
+                    maxBytes = 100
+                )
+            assertNotNull(result)
+            assertEquals("hello", result!!.readText())
+            assertTrue(result.exists())
+        } finally {
+            temp.delete()
+        }
+    }
+
+    @Test
+    fun `copyStreamToTemp aborts and deletes when over maxBytes`() {
+        val temp = File.createTempFile("apk_mw2_over_", ".apk")
+        val path = temp.absolutePath
+        val result =
+            ApkIntegrityVerifier.copyStreamToTemp(
+                ByteArrayInputStream(ByteArray(50) { 1 }),
+                temp,
+                maxBytes = 16
+            )
+        assertNull(result)
+        assertFalse(File(path).exists())
     }
 }

@@ -21,7 +21,9 @@ data class AccountEntity(
     val publicKey: String
 ) {
     fun toWalletAccount(): WalletAccount {
-        val chainType = ChainType.fromBip44Code(chain) ?: ChainType.ETH
+        val chainType =
+            ChainType.fromBip44Code(chain)
+                ?: throw UnknownChainCodeException(chain)
         val path =
             if (pathIndex != null) {
                 Path(
