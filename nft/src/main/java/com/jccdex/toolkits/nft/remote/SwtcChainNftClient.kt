@@ -1,9 +1,11 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.jccdex.toolkits.core.json.Json
 import com.jccdex.toolkits.core.model.ChainDefaults
 import com.jccdex.toolkits.core.net.HttpFetcher
 import com.jccdex.toolkits.core.net.HttpResult
 import com.jccdex.toolkits.core.net.RedirectPolicy
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -81,7 +83,7 @@ class SwtcChainNftClient private constructor(
         body: JSONObject
     ): JSONObject? =
         when (val result = httpFetcher.postJson(nodeUrl, body.toString())) {
-            is HttpResult.Success -> runCatching { JSONObject(result.value) }.getOrNull()
+            is HttpResult.Success -> Json.safeParseObject(result.value)
             is HttpResult.Failure -> null
         }
 
@@ -111,7 +113,7 @@ class SwtcChainNftClient private constructor(
             val tokenInfosJson =
                 when (tokenInfosElement) {
                     is JSONArray -> tokenInfosElement.toString()
-                    is String -> tokenInfosElement.takeIf { it.isNotBlank() }
+                    is String -> tokenInfosElement.notBlankOrNull()
                     else -> tokenInfosElement.toString()
                 } ?: return null
             return extractSwtcMetadataUri(tokenInfosJson)

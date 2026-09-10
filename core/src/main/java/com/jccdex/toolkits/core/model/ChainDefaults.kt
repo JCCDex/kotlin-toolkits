@@ -33,7 +33,7 @@ object ChainDefaults {
                     ),
                 137L to
                     listOf(
-                        "https://polygon-rpc.com",
+                        "https://polygon-bor-rpc.publicnode.com",
                         "https://1rpc.io/matic",
                         "https://polygon.publicnode.com"
                     ),
@@ -70,6 +70,23 @@ object ChainDefaults {
          * @return RPC节点URL，未知链返回空字符串
          */
         fun getDefaultRpcUrl(chainId: Long): String = getRpcUrls(chainId).firstOrNull() ?: ""
+
+        /**
+         * 已废弃不再使用的官方默认 RPC 端点（服务商停用/不可靠）。
+         * 宿主升级时应从本地节点库清理这些 URL，并补充 [getRpcUrls] 中的新默认端点。
+         */
+        private val deprecatedRpcNodes: Map<Long, Set<String>> =
+            mapOf(
+                137L to setOf("https://polygon-rpc.com")
+            )
+
+        /**
+         * 获取指定链已废弃的官方默认 RPC 端点集合。
+         *
+         * @param chainId EVM链ID
+         * @return 废弃 URL 集合，未知链返回空集合
+         */
+        fun getDeprecatedRpcUrls(chainId: Long): Set<String> = deprecatedRpcNodes[chainId] ?: emptySet()
     }
 
     /**
@@ -95,5 +112,21 @@ object ChainDefaults {
          * @return RPC节点URL
          */
         fun getDefaultRpcUrl(): String = rpcNodes.firstOrNull() ?: ""
+
+        /**
+         * 已废弃不再使用的官方默认 RPC 端点（服务商停用/不可靠）。
+         * 宿主升级时应从本地节点库清理这些 URL，契约与 [Evm.getDeprecatedRpcUrls] 一致。
+         *
+         * 目前为空：保留该能力是为了让宿主的清理逻辑能对称覆盖 SWTC，
+         * 不必在节点退役时再改一次宿主代码。
+         */
+        private val deprecatedRpcNodes: Set<String> = emptySet()
+
+        /**
+         * 获取 SWTC 链已废弃的官方默认 RPC 端点集合。
+         *
+         * @return 废弃 URL 集合（当前为空集合）
+         */
+        fun getDeprecatedRpcUrls(): Set<String> = deprecatedRpcNodes
     }
 }

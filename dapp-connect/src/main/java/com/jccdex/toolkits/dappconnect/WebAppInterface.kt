@@ -3,8 +3,10 @@ package com.jccdex.toolkits.dappconnect
 import android.util.Log
 import android.webkit.JavascriptInterface
 import com.jccdex.toolkits.core.error.ToolkitException
+import com.jccdex.toolkits.core.json.Json
 import com.jccdex.toolkits.core.model.ChainType
 import com.jccdex.toolkits.core.rpc.ErrorCodes
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
 import com.jccdex.toolkits.dappconnect.model.DAppMethod
@@ -167,7 +169,7 @@ open class WebAppInterface(
         // M-D6: per-origin rate limit (DoS guard) — drop requests over the budget.
         if (!requestRateLimiter.tryAcquire(origin)) {
             Log.w(TAG, "postMessage rejected: rate limit exceeded for origin=$origin")
-            val rejected = runCatching { JSONObject(json) }.getOrNull()
+            val rejected = Json.safeParseObject(json)
             val rejectedNetwork = rejected?.optString("network").orEmpty()
             val rejectedNonce = rejected?.optString("nonce", rejected.optString("id")).orEmpty()
             if (rejectedNetwork.isNotBlank() && rejectedNonce.isNotBlank()) {
@@ -363,7 +365,7 @@ open class WebAppInterface(
                 Log.d(TAG, "Received wallet_switchEthereumChain request")
                 val params = requireParamsArray(obj, network, nonce) ?: return
                 val chainParams = params.paramObject(0)
-                val chainId = chainParams?.optString("chainId")?.takeIf { it.isNotBlank() }
+                val chainId = chainParams?.optString("chainId")?.notBlankOrNull()
                 if (chainId != null) {
                     Log.d(TAG, "Chain switch requested to: $chainId")
                     handleWalletSwitchEthereumChain(network, nonce, chainId)
@@ -988,13 +990,13 @@ open class WebAppInterface(
         json: String,
         errorMessage: String
     ) {
-        val rejected = runCatching { JSONObject(json) }.getOrNull() ?: return
-        val network = rejected.optString("network").takeIf { it.isNotBlank() } ?: return
+        val rejected = Json.safeParseObject(json) ?: return
+        val network = rejected.optString("network").notBlankOrNull() ?: return
         val nonce =
             rejected
                 .optString("nonce")
-                .takeIf { it.isNotBlank() }
-                ?: rejected.optString("id").takeIf { it.isNotBlank() }
+                .notBlankOrNull()
+                ?: rejected.optString("id").notBlankOrNull()
                 ?: return
         sendInvalidRequest(network, nonce, errorMessage)
     }

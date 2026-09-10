@@ -2,6 +2,7 @@ package com.jccdex.toolkits.dappconnect
 
 import com.jccdex.toolkits.core.error.ToolkitException
 import com.jccdex.toolkits.core.rpc.ErrorCodes
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import java.util.Locale
 
 /** Structured RPC error returned to DApp JavaScript. */
@@ -15,10 +16,10 @@ data class RpcError(
  */
 fun Throwable.toRpcError(fallbackMessage: String): RpcError {
     if (this is ToolkitException) {
-        val msg = message?.takeIf { it.isNotBlank() } ?: fallbackMessage
+        val msg = message?.notBlankOrNull() ?: fallbackMessage
         return RpcError(errorCode, msg)
     }
-    val msg = message?.takeIf { it.isNotBlank() } ?: fallbackMessage
+    val msg = message?.notBlankOrNull() ?: fallbackMessage
     return when (this) {
         is IllegalArgumentException ->
             if (isPasswordOrAuthFailure(msg)) {

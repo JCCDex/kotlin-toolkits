@@ -2,11 +2,15 @@ package com.jccdex.toolkits.did.sdk
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import com.jccdex.toolkits.webviewbridge.SharedWebviewBridge
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeClient
 import com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
 import com.jccdex.toolkits.webviewbridge.androidAssetUrl
 import io.mockk.coEvery
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
@@ -63,6 +67,29 @@ class AndroidDidWebRuntimeTest {
             verify { bridgeClient.start() }
             verify { bridgeClient.destroy() }
         }
+
+    /**
+     * M-DID8：默认 runtime 包装的是进程级共享 client（`ownsClient == false`），
+     * 因此 `destroy()` 必须是 no-op —— 一旦这个判断被去掉，`DidSdk.close()`
+     * 会拆掉整个进程共享的隐藏 WebView，Wallet 与 DID 一起挂。
+     */
+    @Test
+    fun destroyIsNoOpForDefaultSharedRuntime() {
+        val sharedClient = mockk<WebviewBridgeClient>(relaxed = true)
+        mockkObject(SharedWebviewBridge)
+        try {
+            every { SharedWebviewBridge.client(any()) } returns sharedClient
+
+            val runtime = AndroidDidWebRuntime(context)
+            runtime.destroy()
+            runtime.destroy()
+
+            verify(exactly = 0) { sharedClient.destroy() }
+            verify(exactly = 0) { SharedWebviewBridge.destroy() }
+        } finally {
+            unmockkObject(SharedWebviewBridge)
+        }
+    }
 
     private class RecordingDidWebBridgeClient : IDidWebBridge {
         var initialized = false

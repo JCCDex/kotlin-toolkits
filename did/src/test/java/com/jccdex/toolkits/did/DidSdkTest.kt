@@ -1,6 +1,9 @@
 package com.jccdex.toolkits.did
 
+import android.app.Application
+import android.content.Context
 import android.util.Log
+import androidx.test.core.app.ApplicationProvider
 import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.Did
@@ -19,7 +22,9 @@ import com.jccdex.toolkits.did.port.DidAvatarAsset
 import com.jccdex.toolkits.did.port.IDidAvatarCredentialSource
 import com.jccdex.toolkits.did.port.IDidAvatarResolver
 import com.jccdex.toolkits.did.port.IDidBridge
+import com.jccdex.toolkits.did.sdk.AndroidDidWebRuntime
 import com.jccdex.toolkits.did.sdk.DidSdk
+import com.jccdex.toolkits.did.sdk.IDidWebBridge
 import com.jccdex.toolkits.did.service.DidCoreService
 import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.did.store.IDidStore
@@ -44,6 +49,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -2193,4 +2199,298 @@ class DidSdkTest {
             assertTrue(ex.message!!.contains("host confirmation"))
             coVerify(exactly = 0) { bridge.call("signCredential", any()) }
         }
+
+    // ── H-DID1: issuer must match the wallet DID when expected ──
+
+    @Test
+    fun `signCredentialForDApp passes when issuer matches expected DID`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val result =
+                sdk.signCredentialForDApp(
+                    "pk",
+                    payload,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0x1"
+                )
+
+            assertEquals("""{"signed":true}""", result)
+        }
+
+    @Test
+    fun `signCredentialForDApp passes when issuerObject matches expected DID`() =
+        runTest {
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"}},""" +
+                    """"issuerObject":{"id":"did:ethr:0x1"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val result =
+                sdk.signCredentialForDApp(
+                    "pk",
+                    payload,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0x1"
+                )
+
+            assertEquals("""{"signed":true}""", result)
+        }
+
+    @Test
+    fun `signCredentialForDApp passes when object-form issuer matches expected DID`() =
+        runTest {
+            // H-DID1: issuer may be an {id} object rather than a plain string.
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},""" +
+                    """"issuer":{"id":"did:ethr:0x1"}}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val result =
+                sdk.signCredentialForDApp(
+                    "pk",
+                    payload,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0x1"
+                )
+
+            assertEquals("""{"signed":true}""", result)
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects when issuer mismatches expected DID`() =
+        runTest {
+            // H-DID1: a DApp must not induce signing a credential issued in another DID's name.
+            val payload =
+                """{"credential":{"@context":["https://www.w3.org/ns/credentials/v2"],""" +
+                    """"type":["VerifiableCredential"],""" +
+                    """"credentialSubject":{"id":"did:ethr:0x2"},"issuer":"did:ethr:0x9"}}"""
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking {
+                        sdk.signCredentialForDApp(
+                            "pk",
+                            payload,
+                            onConfirm = { true },
+                            expectedIssuerDid = "did:ethr:0x1"
+                        )
+                    }
+                }
+            assertTrue(ex.message!!.contains("issuer"))
+            coVerify(exactly = 0) { bridge.call("signCredential", any()) }
+        }
+
+    // ── M-DID8: DidSdk.close() lifecycle exit ──
+
+    @Test
+    fun `close is safe and idempotent with an external bridge`() {
+        // Mock (host-supplied) bridges carry no lifecycle: close must no-op, never throw.
+        sdk.close()
+        sdk.close()
+    }
+
+    /**
+     * M-DID8：上面那条用例用的是普通 mock bridge，而 `close()` 的实现是
+     * `(bridge as? AndroidDidWebRuntime)?.destroy()` —— mock 不是该类型，等于什么都没验证。
+     * 这里用**真实的** runtime + 注入的 owned bridge，才能真正锁住"注入的 client 会被释放"。
+     * （"默认共享 runtime 不被销毁"由 AndroidDidWebRuntimeTest 覆盖。）
+     */
+    @Test
+    fun `close destroys the bridge owned by the runtime`() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        val owned = RecordingOwnedDidWebBridge()
+        val runtime = AndroidDidWebRuntime(context) { owned }
+        val sdkWithOwnedRuntime =
+            DidSdk.create(runtime, MemoryDidStore(), mockk<IDidResolver>(relaxed = true))
+
+        sdkWithOwnedRuntime.close()
+
+        assertTrue("close() must release the owned bridge", owned.destroyCount == 1)
+
+        // KDoc 承诺 "safe to call more than once"：重复调用不得抛异常。
+        sdkWithOwnedRuntime.close()
+    }
+
+    // ── H-DID1: issuer 校验的边界 ──
+
+    /**
+     * 用 JSONObject 组装 payload（而不是手写带引号的裸字符串），
+     * 让 `issuer` 的三种形态（字符串 / 空串 / `{id}` 对象）都能被明确表达。
+     */
+    private fun credentialPayload(
+        issuer: Any,
+        issuerObject: JSONObject? = null
+    ): String {
+        val credential =
+            JSONObject()
+                .put("@context", JSONArray().put("https://www.w3.org/ns/credentials/v2"))
+                .put("type", JSONArray().put("VerifiableCredential"))
+                .put("credentialSubject", JSONObject().put("id", "did:ethr:0x2"))
+                .put("issuer", issuer)
+        val payload = JSONObject().put("credential", credential)
+        issuerObject?.let { payload.put("issuerObject", it) }
+        return payload.toString()
+    }
+
+    @Test
+    fun `signCredentialForDApp rejects mismatch before asking the user to confirm`() =
+        runTest {
+            var confirmCalls = 0
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking {
+                        sdk.signCredentialForDApp(
+                            "pk",
+                            credentialPayload(issuer = "did:ethr:0x9"),
+                            onConfirm = {
+                                confirmCalls++
+                                true
+                            },
+                            expectedIssuerDid = "did:ethr:0x1"
+                        )
+                    }
+                }
+
+            assertTrue(ex.message!!.contains("issuer"))
+            assertEquals(
+                "issuer 不匹配时不得弹确认框（fail fast 在确认之前）",
+                0,
+                confirmCalls
+            )
+        }
+
+    @Test
+    fun `signCredentialForDApp keeps legacy behaviour when expected issuer is not provided`() =
+        runTest {
+            // opt-in 语义：不传 / 传空白 = 不做 issuer 校验。
+            // 注意：SDK 内部 handleDidIssueCredential 目前正是不传该参数，
+            // 所以这条用例同时记录了"DApp 路径尚未接线"这一现状。
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+            val payload = credentialPayload(issuer = "did:ethr:0x9")
+
+            assertEquals(
+                """{"signed":true}""",
+                sdk.signCredentialForDApp("pk", payload, onConfirm = { true }, expectedIssuerDid = null)
+            )
+            assertEquals(
+                """{"signed":true}""",
+                sdk.signCredentialForDApp("pk", payload, onConfirm = { true }, expectedIssuerDid = "   ")
+            )
+        }
+
+    @Test
+    fun `signCredentialForDApp ignores blank issuer candidate when another one matches`() =
+        runTest {
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+            // credential.issuer 是空串，只有 issuerObject 命中期望值
+            val payload =
+                credentialPayload(
+                    issuer = "",
+                    issuerObject = JSONObject().put("id", "did:ethr:0x1")
+                )
+
+            assertEquals(
+                """{"signed":true}""",
+                sdk.signCredentialForDApp(
+                    "pk",
+                    payload,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0x1"
+                )
+            )
+        }
+
+    @Test
+    fun `signCredentialForDApp tolerates whitespace and hex case in issuer`() =
+        runTest {
+            // H-DID1 归一化：同一身份的不同写法（两侧空白、EIP-55 大小写）不得被误拒。
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+
+            val padded = credentialPayload(issuer = "  did:ethr:0x1  ")
+            assertEquals(
+                """{"signed":true}""",
+                sdk.signCredentialForDApp(
+                    "pk",
+                    padded,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0x1"
+                )
+            )
+
+            val checksummed = credentialPayload(issuer = JSONObject().put("id", "did:ethr:0xAB"))
+            assertEquals(
+                """{"signed":true}""",
+                sdk.signCredentialForDApp(
+                    "pk",
+                    checksummed,
+                    onConfirm = { true },
+                    expectedIssuerDid = "did:ethr:0xab"
+                )
+            )
+        }
+
+    @Test
+    fun `signCredentialForDApp rejects when every issuer candidate is blank`() =
+        runTest {
+            coEvery { bridge.call("signCredential", any()) } returns """{"signed":true}"""
+            // 空白候选必须被当作"缺失"，而不是通配符
+            val payload =
+                credentialPayload(
+                    issuer = JSONObject().put("id", ""),
+                    issuerObject = JSONObject().put("id", "   ")
+                )
+
+            val ex =
+                assertThrows(IllegalArgumentException::class.java) {
+                    runBlocking {
+                        sdk.signCredentialForDApp(
+                            "pk",
+                            payload,
+                            onConfirm = { true },
+                            expectedIssuerDid = "did:ethr:0x1"
+                        )
+                    }
+                }
+
+            assertTrue(ex.message!!.contains("issuer"))
+            coVerify(exactly = 0) { bridge.call("signCredential", any()) }
+        }
+
+    private class RecordingOwnedDidWebBridge : IDidWebBridge {
+        var destroyCount = 0
+
+        override fun initialize(
+            context: Context,
+            config: com.jccdex.toolkits.webviewbridge.WebviewBridgeConfig
+        ) = Unit
+
+        override fun start() = Unit
+
+        override suspend fun call(
+            method: String,
+            params: String?
+        ): String = "{}"
+
+        override suspend fun <T> callAs(
+            method: String,
+            params: String?,
+            clazz: Class<T>
+        ): T = throw UnsupportedOperationException("not exercised by this test")
+
+        override fun destroy() {
+            destroyCount++
+        }
+    }
 }

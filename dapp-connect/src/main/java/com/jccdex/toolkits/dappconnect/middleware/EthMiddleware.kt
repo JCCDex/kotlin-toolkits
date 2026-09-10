@@ -193,12 +193,6 @@ class EthMiddleware(
             secretProvider.getPrivateKeyForAddress(address, origin)
                 ?: throw UnauthorizedException("Password required to sign transaction")
 
-        val params =
-            JSONObject().apply {
-                put("privateKey", privateKey)
-                put("data", message)
-            }
-
         return WalletSdk.personalSign(privateKey, message)
     }
 

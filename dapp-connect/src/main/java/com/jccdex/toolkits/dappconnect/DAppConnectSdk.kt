@@ -142,7 +142,11 @@ object DAppConnectSdk {
 
     /** Quote a string for safe embedding in a JS string literal (double-quoted). */
     private fun jsQuote(s: String): String =
-        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r") + "\""
+        "\"" +
+            s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+                // L-22: U+2028/U+2029 are line terminators in pre-ES2019 JS engines and would
+                // break out of the string literal — escape them for defense in depth.
+                .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029") + "\""
 
     /**
      * Render a drawable resource to a PNG data URI.
@@ -183,9 +187,11 @@ object DAppConnectSdk {
      * @return JS code to inject into the WebView
      */
     fun loadEip6963IconOverrideJs(iconDataUri: String): String {
-        val escaped = iconDataUri.replace("\\", "\\\\").replace("'", "\\'")
+        // L-22: 复用 jsQuote，避免这里再写第二套转义而漏掉 \n / \r / U+2028 / U+2029
+        // （单引号字面量里的裸换行会让整段注入脚本语法错误，行分隔符还能越出字符串）。
+        val quotedIcon = jsQuote(iconDataUri)
         return """
-            (function(){var i='$escaped';var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e.type==='eip6963:announceProvider'&&e.detail&&e.detail.info){var n={uuid:e.detail.info.uuid,name:e.detail.info.name,icon:i,rdns:e.detail.info.rdns};var ne=new CustomEvent('eip6963:announceProvider',{detail:{info:Object.freeze(n),provider:e.detail.provider}});o(ne);return true}return o(e)}})();
+            (function(){var i=$quotedIcon;var o=window.dispatchEvent.bind(window);window.dispatchEvent=function(e){if(e.type==='eip6963:announceProvider'&&e.detail&&e.detail.info){var n={uuid:e.detail.info.uuid,name:e.detail.info.name,icon:i,rdns:e.detail.info.rdns};var ne=new CustomEvent('eip6963:announceProvider',{detail:{info:Object.freeze(n),provider:e.detail.provider}});o(ne);return true}return o(e)}})();
             """.trimIndent()
     }
 

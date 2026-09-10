@@ -1,6 +1,7 @@
 package com.jccdex.toolkits.did.util
 
 import android.util.Log
+import com.jccdex.toolkits.core.json.optJSONObjectSafe
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,7 +28,7 @@ object DidDocumentReader {
             for (i in 0 until services.length()) {
                 val service = services.optJSONObject(i) ?: continue
                 if (service.optString("type") != "Profile") continue
-                val endpoint = service.optJSONObject("serviceEndpoint") ?: continue
+                val endpoint = service.optJSONObjectSafe("serviceEndpoint") ?: continue
                 val value = endpoint.optString(key, "")
                 if (value.isNotBlank()) return value
             }

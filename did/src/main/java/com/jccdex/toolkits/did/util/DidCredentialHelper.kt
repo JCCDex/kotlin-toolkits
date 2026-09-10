@@ -1,6 +1,8 @@
 package com.jccdex.toolkits.did.util
 
 import android.util.Log
+import com.jccdex.toolkits.core.json.Json
+import com.jccdex.toolkits.core.json.optJSONObjectSafe
 import com.jccdex.toolkits.core.nft.NftStandards
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.DidAvatarCredential
@@ -214,12 +216,12 @@ object DidCredentialHelper {
                 updated.put(service)
                 continue
             }
-            val endpoint = service.optJSONObject("serviceEndpoint") ?: JSONObject()
+            val endpoint = service.optJSONObjectSafe("serviceEndpoint") ?: JSONObject()
             if (endpoint.optString("preferredAvatar").equals(credentialId, ignoreCase = true)) {
                 endpoint.put("preferredAvatar", "")
             }
             updated.put(
-                JSONObject(service.toString()).apply {
+                Json.copy(service).apply {
                     put("serviceEndpoint", endpoint)
                 }
             )

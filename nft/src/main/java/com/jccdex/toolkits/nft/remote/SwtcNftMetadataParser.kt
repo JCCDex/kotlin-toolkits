@@ -1,13 +1,14 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.jccdex.toolkits.core.json.Json
 import com.jccdex.toolkits.core.json.optStringSafe
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import com.jccdex.toolkits.nft.model.NftMetadataFields
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
-import org.json.JSONObject
 
 fun extractSwtcMetadataUri(tokenInfosPayload: String?): String? {
-    val tokenInfosJson = tokenInfosPayload?.takeIf { it.isNotBlank() } ?: return null
+    val tokenInfosJson = tokenInfosPayload?.notBlankOrNull() ?: return null
     return try {
         val infos = JSONArray(tokenInfosJson)
         for (index in 0 until infos.length()) {
@@ -31,7 +32,7 @@ fun extractMetadataFields(
     metadataBody: String,
     metadataUri: String
 ): NftMetadataFields {
-    val root = runCatching { JSONObject(metadataBody) }.getOrNull() ?: return NftMetadataFields(null, null, null)
+    val root = Json.safeParseObject(metadataBody) ?: return NftMetadataFields(null, null, null)
     val payload = root.optJSONObject("data") ?: root
     return NftMetadataFields(
         image = extractMetadataImageUrl(root, metadataUri),

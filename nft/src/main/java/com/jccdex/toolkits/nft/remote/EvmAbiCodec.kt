@@ -1,5 +1,6 @@
 package com.jccdex.toolkits.nft.remote
 
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import java.math.BigInteger
 
 object EvmAbiCodec {
@@ -36,7 +37,7 @@ object EvmAbiCodec {
                 bytes[index / 2] = dataHex.substring(index, index + 2).toInt(16).toByte()
                 index += 2
             }
-            String(bytes, Charsets.UTF_8).trim().takeIf { it.isNotBlank() }
+            String(bytes, Charsets.UTF_8).trim().notBlankOrNull()
         }.getOrNull()
     }
 
@@ -58,7 +59,7 @@ object EvmAbiCodec {
                 bytes[i] = normalized.substring(i * 2, i * 2 + 2).toInt(16).toByte()
             }
             val endIndex = bytes.indexOfFirst { it == 0.toByte() }.let { if (it == -1) 32 else it }
-            String(bytes, 0, endIndex, Charsets.UTF_8).trim().takeIf { it.isNotBlank() }
+            String(bytes, 0, endIndex, Charsets.UTF_8).trim().notBlankOrNull()
         }.getOrNull()
     }
 }

@@ -4,7 +4,10 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.JsonElement
 import com.jccdex.toolkits.core.json.JsonPath
+import com.jccdex.toolkits.core.json.optJSONObjectSafe
+import com.jccdex.toolkits.core.json.optStringSafe
 import com.jccdex.toolkits.core.nft.NftStandards
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import com.jccdex.toolkits.did.model.ChainType
 import com.jccdex.toolkits.did.model.CredentialAuthorizationType
 import com.jccdex.toolkits.did.model.CredentialVerificationResult
@@ -88,6 +91,21 @@ class DidSdk internal constructor(
     fun observeAllDidDocuments(): Flow<List<DidEntity>> = core.observeAll()
 
     suspend fun getDidDocument(did: String): DidEntity? = core.getDidDocument(did)
+
+    /**
+     * M-DID8: lifecycle exit for [DidSdk].
+     *
+     * Each [DidSdk] owns its bridge runtime state — keep one instance per process
+     * (ideally application-scoped) instead of calling `create` repeatedly. When the
+     * instance is truly discarded (e.g. logout / process teardown in tests), call
+     * [close] so an owned bridge client can release its WebView. Safe to call more
+     * than once; never destroys the process-shared runtime, and never touches a
+     * host-supplied custom [IDidBridge] (no `close` on that interface by design).
+     */
+    fun close() {
+        runCatching { (bridge as? AndroidDidWebRuntime)?.destroy() }
+            .onFailure { Log.w("DidSdk", "close() failed to release bridge", it) }
+    }
 
     fun getProfile(doc: String): Profile? {
         val nickname = DidDocumentReader.readProfileField(doc, "nickname")
@@ -307,17 +325,24 @@ class DidSdk internal constructor(
      * SDK validates credential **structure** only (M-15). The host app must obtain
      * explicit user confirmation before calling this — [onConfirm] is suspend so hosts can
      * show a confirmation dialog (same pattern as TransactionConfirmCallback).
+     *
+     * H-DID1: when [expectedIssuerDid] is provided, the credential's `issuer`
+     * (string or `{id}` object) or the payload's `issuerObject` must equal it —
+     * otherwise signing is refused before any confirmation dialog. Pass the
+     * wallet's own DID so a malicious DApp cannot induce signing a credential
+     * (e.g. an NFT usage grant) issued in someone else's name.
      */
     suspend fun signCredentialForDApp(
         privateKey: String,
         payload: String,
-        onConfirm: (suspend (String) -> Boolean)? = null
+        onConfirm: (suspend (String) -> Boolean)? = null,
+        expectedIssuerDid: String? = null
     ): String =
         withContext(Dispatchers.IO) {
             val params =
                 JSONObject(payload).apply { put("privateKey", privateKey) }
             val credential =
-                params.optJSONObject("credential")
+                params.optJSONObjectSafe("credential")
                     ?: throw IllegalArgumentException("Missing credential in payload")
             require(credential.has("@context") || credential.has("type")) {
                 "Credential must have @context or type"
@@ -328,6 +353,22 @@ class DidSdk internal constructor(
             require(credential.has("issuer") || params.has("issuerObject")) {
                 "Credential must have issuer or issuerObject"
             }
+            // H-DID1: refuse to sign a credential issued in another DID's name.
+            // Fail fast (before the confirm dialog) so the user is never asked
+            // to approve a mismatched issuance.
+            if (!expectedIssuerDid.isNullOrBlank()) {
+                // H-DID1: 比较前归一化 —— 去掉两侧空白，并按忽略大小写比较，
+                // 否则 ' did:ethr:0x1 ' 或校验和大小写（did:ethr:0xAbC vs 0xabc）
+                // 这种同一身份的不同写法会被误判为不匹配而拒签。
+                val expected = expectedIssuerDid.trim()
+                val issuerIds = credentialIssuerIds(credential, params)
+                if (issuerIds.none { it.equals(expected, ignoreCase = true) }) {
+                    Log.e("DidSdk", "signCredentialForDApp rejected: issuer mismatch")
+                    throw IllegalArgumentException(
+                        "Credential issuer does not match wallet DID"
+                    )
+                }
+            }
             // H-DID1: a DApp credential may grant asset usage rights, so refuse to blind-sign
             // without an explicit host confirmation callback (fail closed).
             val confirmed = onConfirm?.invoke(payload) ?: false
@@ -336,6 +377,27 @@ class DidSdk internal constructor(
                 throw IllegalStateException("Credential signing requires host confirmation")
             }
             bridge.call("signCredential", params.toString())
+        }
+
+    /**
+     * H-DID1: collects the candidate issuer DIDs from a DApp credential payload.
+     * Both `credential.issuer` and the top-level `issuerObject` may be either a
+     * plain DID string or an `{id}` object — accept both shapes, ignore blanks.
+     */
+    private fun credentialIssuerIds(
+        credential: JSONObject,
+        params: JSONObject
+    ): List<String> =
+        listOfNotNull(
+            credential.opt("issuer")?.let(::issuerIdOf),
+            params.opt("issuerObject")?.let(::issuerIdOf)
+        ).mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+
+    private fun issuerIdOf(node: Any?): String? =
+        when (node) {
+            is String -> node.notBlankOrNull()
+            is JSONObject -> node.optStringSafe("id")
+            else -> null
         }
 
     /**
@@ -530,7 +592,7 @@ class DidSdk internal constructor(
                         }
 
                         "IpfsStorage" -> {
-                            val endpoint = service.optJSONObject("serviceEndpoint") ?: JSONObject()
+                            val endpoint = service.optJSONObjectSafe("serviceEndpoint") ?: JSONObject()
                             if (previousCid.isNotBlank()) endpoint.put("previousCid", previousCid)
                             updatedServices.put(
                                 JSONObject().apply {
@@ -599,7 +661,7 @@ class DidSdk internal constructor(
                         }
 
                         "IpfsStorage" -> {
-                            val endpoint = service.optJSONObject("serviceEndpoint") ?: JSONObject()
+                            val endpoint = service.optJSONObjectSafe("serviceEndpoint") ?: JSONObject()
                             if (previousCid.isNotBlank()) endpoint.put("previousCid", previousCid)
                             updatedServices.put(
                                 JSONObject().apply {
@@ -1029,8 +1091,8 @@ class DidSdk internal constructor(
                 }
 
                 val matched = credentials.getJSONObject(matchedIndex)
-                val originalSubject = credential.optJSONObject("credentialSubject")
-                val matchedSubject = matched.optJSONObject("credentialSubject")
+                val originalSubject = credential.optJSONObjectSafe("credentialSubject")
+                val matchedSubject = matched.optJSONObjectSafe("credentialSubject")
                 if (originalSubject?.optString("id") != matchedSubject?.optString("id")) {
                     return@withContext GranteeCredentialUpdateResult(
                         isUpdate = true,
@@ -1145,7 +1207,7 @@ class DidSdk internal constructor(
         for (index in 0 until services.length()) {
             val service = services.getJSONObject(index)
             if (service.optString("type") == "IpfsStorage") {
-                val endpoint = service.optJSONObject("serviceEndpoint") ?: JSONObject()
+                val endpoint = service.optJSONObjectSafe("serviceEndpoint") ?: JSONObject()
                 endpoint.put("previousCid", previousCid)
                 updatedServices.put(
                     JSONObject().apply {

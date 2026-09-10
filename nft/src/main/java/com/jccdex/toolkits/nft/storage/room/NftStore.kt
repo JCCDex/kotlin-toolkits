@@ -8,6 +8,7 @@ import com.jccdex.toolkits.core.model.toEvmChainIdHex
 import com.jccdex.toolkits.core.net.HttpFetcher
 import com.jccdex.toolkits.core.net.HttpResult
 import com.jccdex.toolkits.core.net.RedirectPolicy
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import com.jccdex.toolkits.nft.model.AvatarCandidate
 import com.jccdex.toolkits.nft.model.ChainType
 import com.jccdex.toolkits.nft.model.CredentialImageRequest
@@ -408,8 +409,8 @@ class NftStore(
         tokenId: String?
     ): String? {
         val normalizedChainId = chainId?.takeIf { it > 0 } ?: return null
-        val normalizedContract = contract?.trim()?.takeIf { it.isNotBlank() } ?: return null
-        val normalizedTokenId = tokenId?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val normalizedContract = contract?.trim()?.notBlankOrNull() ?: return null
+        val normalizedTokenId = tokenId?.trim()?.notBlankOrNull() ?: return null
         val metadataUri =
             sanitizeUri(
                 normalizeRemoteAssetUrl(
@@ -419,7 +420,7 @@ class NftStore(
                         normalizedChainId
                     )
                 )
-            ).takeIf { it.isNotBlank() }
+            ).notBlankOrNull()
                 ?: return null
         return resolveEthrImage(normalizedContract, normalizedTokenId, null, metadataUri)
     }
@@ -469,7 +470,7 @@ class NftStore(
         }
 
         val tokenUri =
-            existing?.tokenUri?.takeIf { it.isNotBlank() }
+            existing?.tokenUri?.notBlankOrNull()
                 ?: swtcChainNftClient.fetchMetadataUri(tokenId)
                 ?: return existing
 
@@ -477,7 +478,7 @@ class NftStore(
     }
 
     private suspend fun preserveSwtcEntityAsMeta(entity: SwtcNftEntity) {
-        val metadataUri = entity.metadataUri?.takeIf { it.isNotBlank() } ?: return
+        val metadataUri = entity.metadataUri?.notBlankOrNull() ?: return
         val existing = getNftMeta(entity.issuer, entity.tokenId)
         if (!existing?.image.isNullOrBlank()) {
             return
@@ -487,8 +488,8 @@ class NftStore(
                 id = existing?.id ?: 0,
                 contract = entity.issuer,
                 tokenId = entity.tokenId,
-                name = entity.name?.takeIf { it.isNotBlank() } ?: existing?.name,
-                image = entity.image?.takeIf { it.isNotBlank() } ?: existing?.image,
+                name = entity.name?.notBlankOrNull() ?: existing?.name,
+                image = entity.image?.notBlankOrNull() ?: existing?.image,
                 tokenUri = metadataUri,
                 fullContent = existing?.fullContent,
                 updatedAt = System.currentTimeMillis()
@@ -586,7 +587,7 @@ class NftStore(
             when (val result = httpFetcher.get(url)) {
                 is HttpResult.Success ->
                     result.value
-                        .takeIf { it.isNotBlank() }
+                        .notBlankOrNull()
                         ?.let { JsonParser.parseString(it).asJsonObject }
                 is HttpResult.Failure -> null
             }
@@ -595,7 +596,7 @@ class NftStore(
     private suspend fun fetchText(url: String): String? =
         withContext(Dispatchers.IO) {
             when (val result = httpFetcher.get(url)) {
-                is HttpResult.Success -> result.value.takeIf { it.isNotBlank() }
+                is HttpResult.Success -> result.value.notBlankOrNull()
                 is HttpResult.Failure -> null
             }
         }

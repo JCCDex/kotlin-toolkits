@@ -1,10 +1,12 @@
 package com.jccdex.toolkits.nft.remote
 
 import com.google.gson.JsonObject
+import com.jccdex.toolkits.core.json.Json
 import com.jccdex.toolkits.core.json.optStringSafe
 import com.jccdex.toolkits.core.net.HttpFetcher
 import com.jccdex.toolkits.core.net.HttpResult
 import com.jccdex.toolkits.core.net.RedirectPolicy
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -79,7 +81,7 @@ private fun JsonObject.metadataPayload(): JsonObject = get("data")?.takeIf { it.
 
 private fun JsonObject.firstNonBlankImageField(): String? =
     METADATA_IMAGE_KEYS.firstNotNullOfOrNull { key ->
-        get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotBlank() }
+        get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.notBlankOrNull()
     }
 
 private fun String.looksLikeImageAssetUrl(): Boolean {
@@ -109,17 +111,17 @@ fun normalizeRemoteAssetUrl(
     return when {
         value.startsWith("ipfs://", ignoreCase = true) -> {
             val path = value.substringAfter("ipfs://", "").removePrefix("ipfs/").trimStart('/')
-            path.takeIf { it.isNotBlank() }?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
+            path.notBlankOrNull()?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
         }
 
         value.startsWith("/ipfs/", ignoreCase = true) -> {
             val path = value.removePrefix("/").removePrefix("ipfs/").trimStart('/')
-            path.takeIf { it.isNotBlank() }?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
+            path.notBlankOrNull()?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
         }
 
         value.startsWith("ipfs/", ignoreCase = true) -> {
             val path = value.removePrefix("ipfs/").trimStart('/')
-            path.takeIf { it.isNotBlank() }?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
+            path.notBlankOrNull()?.let { "$DEFAULT_IPFS_GATEWAY_BASE_URL$it" }
         }
 
         value.startsWith("http://", ignoreCase = true) ||
@@ -137,7 +139,7 @@ fun extractMetadataImageUrl(
     metadataBody: String,
     metadataUri: String
 ): String? {
-    val metadata = runCatching { JSONObject(metadataBody) }.getOrNull() ?: return null
+    val metadata = Json.safeParseObject(metadataBody) ?: return null
     return extractMetadataImageUrl(metadata, metadataUri)
 }
 
@@ -233,7 +235,7 @@ suspend fun fetchMetadataImage(metadataUrl: String): String? =
         when (val result = httpFetcher.get(metadataUrl)) {
             is HttpResult.Success ->
                 result.value
-                    .takeIf { it.isNotBlank() }
+                    .notBlankOrNull()
                     ?.let { extractMetadataImageUrl(it, metadataUrl) }
             is HttpResult.Failure -> null
         }

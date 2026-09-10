@@ -2,6 +2,7 @@ package com.jccdex.toolkits.dappconnect.middleware
 
 import android.util.Log
 import com.jccdex.toolkits.core.model.ChainType
+import com.jccdex.toolkits.core.text.notBlankOrNull
 import com.jccdex.toolkits.dappconnect.WebOrigin
 import com.jccdex.toolkits.dappconnect.model.UnauthorizedException
 import com.jccdex.toolkits.dappconnect.model.UserRejectedException
@@ -146,7 +147,7 @@ class SwtcMiddleware(
         Log.d(TAG, "multiSign called from origin: $origin")
 
         val account =
-            msParams.optString("account").takeIf { it.isNotBlank() }
+            msParams.optString("account").notBlankOrNull()
                 ?: throw IllegalArgumentException("Missing or invalid account in multi-sign parameters")
 
         // Verify account exists in wallet

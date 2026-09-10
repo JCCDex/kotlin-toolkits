@@ -1,6 +1,7 @@
 package com.jccdex.toolkits.did.sdk
 
 import android.content.Context
+import android.util.Log
 import com.jccdex.toolkits.did.port.IDidBridge
 import com.jccdex.toolkits.did.service.IDidResolver
 import com.jccdex.toolkits.webviewbridge.SharedWebviewBridge
@@ -108,4 +109,18 @@ internal class AndroidDidWebRuntime(
                     put("did", did)
                 }.toString()
         )
+
+    /**
+     * M-DID8: release an owned bridge client. No-op for the default shared
+     * runtime ([SharedWebviewBridge] is process-shared and must outlive any
+     * single [DidSdk]); destroys only an injected owned client (e.g. tests).
+     */
+    fun destroy() {
+        runCatching { bridgeClient.destroy() }
+            .onFailure { Log.w(TAG, "Failed to release owned bridge client", it) }
+    }
+
+    private companion object {
+        private const val TAG = "AndroidDidWebRuntime"
+    }
 }
