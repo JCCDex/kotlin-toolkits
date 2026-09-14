@@ -18,6 +18,7 @@ import com.jccdex.toolkits.dappconnect.middleware.IEthMiddleware
 import com.jccdex.toolkits.dappconnect.middleware.ISwtcMiddleware
 import com.jccdex.toolkits.dappconnect.provider.AccountProvider
 import com.jccdex.toolkits.dappconnect.provider.CachingSecretProvider
+import com.jccdex.toolkits.dappconnect.provider.ChainProvider
 import com.jccdex.toolkits.dappconnect.provider.NftProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,7 +63,17 @@ class DappWebViewHostConfig(
      * WebView 文件上传请求(`<input type=file>`):调用方负责拉起选择器,
      * 拿到结果后调 [DappWebViewHost.deliverFileChooserResult] 回填。返回 true = 已接管。
      */
-    val onShowFileChooser: ((params: WebChromeClient.FileChooserParams?) -> Boolean)? = null
+    val onShowFileChooser: ((params: WebChromeClient.FileChooserParams?) -> Boolean)? = null,
+    /**
+     * 链信息提供者(DApp `wallet_switchEthereumChain`/`eth_chainId` 等);null = 不设置,
+     * 由中间件默认行为处理。
+     */
+    val chainProvider: ChainProvider? = null,
+    /**
+     * H-DID1:`did_issueCredential` 的宿主确认回调(展示确认 UI 后返回是否放行)。
+     * null = 不设置 → SDK fail-closed 拒绝签发(与 `WebAppInterface.setDidCredentialConfirm` 一致)。
+     */
+    val didCredentialConfirm: (suspend (String) -> Boolean)? = null
 )
 
 /**
@@ -115,7 +126,12 @@ class DappWebViewHost(
                 config.accountProvider,
                 config.secretProvider,
                 config.nftProvider
-            ).also { webView.addJavascriptInterface(it, JS_INTERFACE_NAME) }
+            ).also { appInterface ->
+                config.chainProvider?.let { appInterface.setChainProvider(it) }
+                // H-DID1:未提供确认回调时保持 SDK fail-closed 语义(拒绝签发)。
+                appInterface.setDidCredentialConfirm(config.didCredentialConfirm)
+                webView.addJavascriptInterface(appInterface, JS_INTERFACE_NAME)
+            }
 
     init {
         webView.webViewClient =
@@ -202,6 +218,19 @@ class DappWebViewHost(
         syncOrigin(url)
         webView.loadUrl(url)
         update(loaded = true, failed = false)
+    }
+
+    /**
+     * 刷新 WebMessagePort 响应通道(连接授权后调用)。
+     *
+     * 首次 `requestAccounts` 的批准发生在 port 就绪之前时,响应会回不到 JS
+     * (DApp 报「连接钱包失败」,再点一次才成功);批准后刷新可消除该竞态。
+     * 内部切主线程,可在任意线程调用。
+     */
+    fun refreshResponseChannel() {
+        // 必须同步 install:批准后立即发送的响应要落到**新** port 上。
+        // (NativeResponseChannel.install 内部 runOnMain 处理线程,主线程调用为同步。)
+        webAppInterface.installResponseChannel()
     }
 
     /** 在页面上下文执行脚本(地址推送/守卫恢复等)。 */
