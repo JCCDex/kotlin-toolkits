@@ -106,6 +106,13 @@ val didSdk =
 - **解析并落库**：`resolveDid(did)`
 - **读取 Profile**：`getProfile(doc)` / `nickname(doc)`
 - **创建并发布初始 DID 文档**：`uploadInitialDidDoc(privateKey, did, nickname)`
+  - `didStat`（预检 `previousCid`）失败时**不再直接拒绝**：先 `resolveDid` 判定——能解析出来说明 DID 已在链上，
+    按"已存在"处理（不覆盖，保住 M-DID3 的防覆盖语义）；解析不到则按"首次发布"继续
+    （新建身份时 `didStat` 本就取不到记录，直接拒绝会让新建身份必然失败）。
+  - **残留风险（已接受）**：`didStat` 与 `resolveDid` 同时因瞬时错误失败、而 `publishDid` 仍成功时，
+    会丢 `previousCid` 并覆盖链上文档。
+  - **与 swift-toolkits 的差异（已知项）**：`SwiftDid.uploadInitialDidDoc` 对 `didStat` 失败**直接当空处理并发布**
+    （无 `resolveDid` 兜底）→ iOS 侧 M-DID3 的该缺口仍在；Kotlin 侧更严，Swift 后续跟进。
 - **更新昵称并发布**：`updateDidNickname(privateKey, did, nickname, currentDoc)`
 - **发布删除**：`publishDidDelete(privateKey, did)`
 

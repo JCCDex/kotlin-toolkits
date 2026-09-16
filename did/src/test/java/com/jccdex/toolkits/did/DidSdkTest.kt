@@ -697,14 +697,21 @@ class DidSdkTest {
         }
 
     @Test
-    fun `uploadInitialDidDoc refuses when didStat fails`() =
+    fun `uploadInitialDidDoc publishes when didStat fails and the DID is not on chain`() =
         runTest {
             mockkStatic(Log::class)
-            every { Log.e(any(), any(), any()) } returns 0
+            every { Log.w(any(), any(), any()) } returns 0
+            val didDocSlot = slot<String>()
+            coEvery { bridge.call("generateDidDoc", capture(didDocSlot)) } returns """{"did":"did:ethr:0x123"}"""
+            coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+                PublishDidResult(code = "0", message = "ok")
             coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
                 GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
             coEvery { bridge.callAs("didStat", any(), DidStatResult::class.java) } throws
                 IllegalStateException("network down")
+            val resolver = mockk<IDidResolver>(relaxed = true)
+            // 未上链:resolve 取不到文档 → 按"首次发布"继续(而不是像 M-DID3 那样直接拒绝)。
+            coEvery { resolver.resolve("did:ethr:0x123") } returns ""
             val store =
                 object : IDidStore {
                     override fun observeAll() = flowOf(emptyList<DidEntity>())
@@ -720,16 +727,98 @@ class DidSdkTest {
             val sdkWithStore =
                 DidSdk(
                     bridge,
-                    DidCoreService(store, mockk(relaxed = true)),
+                    DidCoreService(store, resolver),
                     avatarResolver,
                     avatarCredentialSource
                 )
 
-            // M-DID3: cannot confirm the DID does not exist → refuse to publish.
             val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
 
-            assertThat(result).isFalse()
+            assertThat(result).isTrue()
+            coVerify { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+            // 首次发布不应带 previousCid(stat 不可用,且链上无记录)。
+            assertThat(didDocSlot.captured).doesNotContain("previousCid")
+        }
+
+    @Test
+    fun `uploadInitialDidDoc publishes when didStat fails and the chain has no document`() =
+        runTest {
+            mockkStatic(Log::class)
+            every { Log.w(any(), any(), any()) } returns 0
+            coEvery { bridge.call("generateDidDoc", any()) } returns """{"did":"did:ethr:0x123"}"""
+            coEvery { bridge.callAs("publishDid", any(), PublishDidResult::class.java) } returns
+                PublishDidResult(code = "0", message = "ok")
+            coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
+                GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+            coEvery { bridge.callAs("didStat", any(), DidStatResult::class.java) } throws
+                IllegalStateException("network down")
+            val resolver = mockk<IDidResolver>(relaxed = true)
+            // 另一种"未上链"形态:解析器返回 "{}"(isMissingDidDocument),本地无 pending/文档 → 仍按首次发布继续。
+            coEvery { resolver.resolve("did:ethr:0x123") } returns "{}"
+            val store =
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
+
+                    override fun observe(did: String) = flowOf(null)
+
+                    override suspend fun get(did: String) = null
+
+                    override suspend fun upsert(entity: DidEntity) = Unit
+
+                    override suspend fun delete(did: String) = Unit
+                }
+            val sdkWithStore =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, resolver),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
+
+            assertThat(result).isTrue()
+            coVerify { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+        }
+
+    @Test
+    fun `uploadInitialDidDoc keeps the existing document when didStat fails but the DID is on chain`() =
+        runTest {
+            mockkStatic(Log::class)
+            every { Log.w(any(), any(), any()) } returns 0
+            coEvery { bridge.callAs("generatePublicKeyBase58", any(), GenerateBase58PKResult::class.java) } returns
+                GenerateBase58PKResult(type = "Ed25519VerificationKey2018", publicKeyBase58 = "pub")
+            coEvery { bridge.callAs("didStat", any(), DidStatResult::class.java) } throws
+                IllegalStateException("network down")
+            val resolver = mockk<IDidResolver>(relaxed = true)
+            coEvery { resolver.resolve("did:ethr:0x123") } returns
+                """{"id":"did:ethr:0x123","updated":"2025-01-01T00:00:00Z"}"""
+            val store =
+                object : IDidStore {
+                    override fun observeAll() = flowOf(emptyList<DidEntity>())
+
+                    override fun observe(did: String) = flowOf(null)
+
+                    override suspend fun get(did: String) = null
+
+                    override suspend fun upsert(entity: DidEntity) = Unit
+
+                    override suspend fun delete(did: String) = Unit
+                }
+            val sdkWithStore =
+                DidSdk(
+                    bridge,
+                    DidCoreService(store, resolver),
+                    avatarResolver,
+                    avatarCredentialSource
+                )
+
+            // M-DID3 的保护保留:能 resolve 出来说明 DID 已在链上 → 不覆盖。
+            val result = sdkWithStore.uploadInitialDidDoc("secret", "did:ethr:0x123", "nick")
+
+            assertThat(result).isTrue()
             coVerify(exactly = 0) { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+            coVerify { resolver.resolve("did:ethr:0x123") }
         }
 
     @Test

@@ -444,6 +444,7 @@ class DidSdk internal constructor(
                         JSONObject().apply { put("privateKey", privateKey) }.toString(),
                         GenerateBase58PKResult::class.java
                     )
+                var statUnavailable = false
                 val previousCid =
                     try {
                         bridge.callAs(
@@ -454,11 +455,25 @@ class DidSdk internal constructor(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        // M-DID3: cannot confirm the DID does not already exist → refuse to overwrite.
-                        Log.e("DidSdk", "Failed to check DID stat before initial upload for $did", e)
-                        return@withContext false
+                        // M-DID3 + 首次发布修复:`didStat` 取不到记录在**新建身份**时是正常情形(DID 尚未上链),
+                        // 不能据此直接拒绝 —— 否则新建身份必然失败(swift-toolkits 同名方法有同样的结论:
+                        // 首次发布应继续;Kotlin 这里**额外**用 `resolveDid` 兜底以避免覆盖,比 Swift 更严)。
+                        // 能解析出来按"已存在"处理(不覆盖,保住 M-DID3);解析不到则按"首次发布"继续。
+                        // 残留风险(已接受):stat 与 resolve 同时因瞬时错误失败、而 publish 仍成功时,会丢
+                        // `previousCid` 且覆盖链上文档 —— 详见 did/README.zh-CN.md 的说明
+                        // (`resolveAndSaveDid` 无法区分"未找到"与"解析失败",没有干净的 fail-closed 路径)。
+                        Log.w("DidSdk", "Failed to check DID stat before initial upload for $did", e)
+                        statUnavailable = true
+                        null
                     }
-                if (!previousCid.isNullOrBlank()) {
+                if (statUnavailable) {
+                    val resolved = resolveDid(did)
+                    if (!resolved.isNullOrBlank()) {
+                        Log.i("DidSdk", "DID already exists on chain (stat unavailable), resolved and saved: $did")
+                        return@withContext true
+                    }
+                    Log.i("DidSdk", "DID not found on chain (stat unavailable), publishing initial document: $did")
+                } else if (!previousCid.isNullOrBlank()) {
                     Log.i("DidSdk", "DID already exists on chain, resolving: $did")
                     val resolved = resolveDid(did)
                     if (!resolved.isNullOrBlank()) {
