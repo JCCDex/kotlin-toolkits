@@ -36,6 +36,13 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action default (`tools platform-tools`) still requests the legacy SDK Tools
+          # package, which Google removed from the SDK repository, so `sdkmanager tools`
+          # fails with "Failed to find package 'tools'". Keep platform-tools only; the
+          # compile platform and build-tools come from AGP's SDK auto-download
+          # (android.builder.sdkDownload defaults to true and the action accepts licenses).
+          packages: 'platform-tools'
 
       - name: Gradle cache
         uses: gradle/actions/setup-gradle@v4
