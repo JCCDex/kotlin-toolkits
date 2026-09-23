@@ -546,7 +546,12 @@ class AccountOrchestratorTest {
             coEvery { vault.getMnemonicUnlocked("jRootDerive") } returns "test mnemonic words".toByteArray()
 
             coEvery {
-                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 1)
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.ETH.bip44Code,
+                    index = 1,
+                    language = any()
+                )
             } returns
                 SubWallet(
                     ChainType.ETH.bip44Code,
@@ -555,7 +560,12 @@ class AccountOrchestratorTest {
                     Keypair("pk1", "pub1")
                 )
             coEvery {
-                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 2)
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.ETH.bip44Code,
+                    index = 2,
+                    language = any()
+                )
             } returns
                 SubWallet(
                     ChainType.ETH.bip44Code,
@@ -580,7 +590,12 @@ class AccountOrchestratorTest {
             testDb.store.addAccount(root)
             coEvery { vault.getMnemonicUnlocked("jRootIdx") } returns "mnemonic".toByteArray()
             coEvery {
-                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 3)
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.ETH.bip44Code,
+                    index = 3,
+                    language = any()
+                )
             } returns
                 SubWallet(
                     ChainType.ETH.bip44Code,
@@ -593,7 +608,51 @@ class AccountOrchestratorTest {
 
             assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
             coVerify(exactly = 1) {
-                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 3)
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.ETH.bip44Code,
+                    index = 3,
+                    language = any()
+                )
+            }
+        }
+
+    @Test
+    fun deriveSubAccount_passesTheVaultMnemonicLanguageToTheWalletSdk() =
+        runTest {
+            // 回归:助记词语言必须取 vault 里存的那份(默认实现是 english,而本仓库可能是
+            // chinese_simplified)—— 传错语言时 JS 侧报 "invalid mnemonic",App 端表现为
+            // "添加身份失败"。Swift 侧早已读 getMnemonicLanguage,这里对齐。
+            mockkObject(WalletSdk)
+            val root = AccountTestFixtures.hdRoot(id = "root-id", address = "jRootLang")
+            testDb.store.addAccount(root)
+            coEvery { vault.getMnemonicUnlocked("jRootLang") } returns "汉语助记词".toByteArray()
+            coEvery { vault.getMnemonicLanguage("jRootLang") } returns "chinese_simplified"
+            coEvery {
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.SWTC.bip44Code,
+                    index = 0,
+                    language = "chinese_simplified"
+                )
+            } returns
+                SubWallet(
+                    ChainType.SWTC.bip44Code,
+                    "jSubLang",
+                    Path(ChainType.SWTC.bip44Code, index = 0),
+                    Keypair("pk", "pub")
+                )
+
+            val result = orchestrator.deriveSubAccount(ChainType.SWTC, root.id)
+
+            assertThat(result).isInstanceOf(AccountOperationResult.Success::class.java)
+            coVerify(exactly = 1) {
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.SWTC.bip44Code,
+                    index = 0,
+                    language = "chinese_simplified"
+                )
             }
         }
 
@@ -613,7 +672,12 @@ class AccountOrchestratorTest {
             testDb.store.addAccount(root)
             coEvery { vault.getMnemonicUnlocked("jRootFail") } returns "mnemonic".toByteArray()
             coEvery {
-                WalletSdk.deriveChild(mnemonic = any(), chain = ChainType.ETH.bip44Code, index = 1)
+                WalletSdk.deriveChild(
+                    mnemonic = any(),
+                    chain = ChainType.ETH.bip44Code,
+                    index = 1,
+                    language = any()
+                )
             } throws IllegalStateException("boom")
 
             val result = orchestrator.deriveSubAccount(ChainType.ETH, root.id)

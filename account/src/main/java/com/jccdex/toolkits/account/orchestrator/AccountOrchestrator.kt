@@ -57,7 +57,7 @@ class AccountOrchestrator(
      * @param password Business / new password used to initialize vault when empty.
      *   Must be a **distinct** [ByteArray] from [clearExistingPassword]: vault verify/clear
      *   wipes the clear-password array in place (H-R5). Passing the same reference for both
-     *   will leave [password] zeroed before [initializePassword].
+     *   will leave [password] zeroed before ['initializePassword'].
      * @param clearExistingPassword **Current** vault password required when [clearExisting] and
      *   vault already has a password. Must not be confused with [password] (e.g. reset UI new password).
      *   Do not reuse the same [ByteArray] instance as [password].
@@ -210,12 +210,6 @@ class AccountOrchestrator(
         return vault.listAccounts().filter { it.lowercase(Locale.ROOT) !in storeAddresses }
     }
 
-    /**
-     * Imports a derived HD sub-account into the account store. No vault key is persisted: the
-     * sub-account private key is meant to be derived from the root mnemonic at signing time
-     * (not yet implemented — sub-account signing is currently unavailable). Writing an empty key
-     * to vault would permanently lock the address, so vault persistence is skipped for it.
-     */
     suspend fun importSubAccount(
         derived: DerivedSubAccount,
         name: String
@@ -279,13 +273,19 @@ class AccountOrchestrator(
                         ?: return@withLock AccountOperationResult.Error(AccountOperationError.RootAccountNotFound)
 
                 mnemonic = vault.getMnemonicUnlocked(rootAccount.address)
+                // 助记词语言必须跟着 vault 里存的那份走:WalletSdk.deriveChild 的 language 默认是
+                // "english",而本仓库的助记词可以是 chinese_simplified 等 —— 传错语言时 JS 侧直接
+                // 报 "invalid mnemonic"(App 端现象:添加身份失败)。Swift 侧 AccountManager 早已
+                // 用 vault.getMnemonicLanguage 取,这里补齐同一口径。
+                val language = vault.getMnemonicLanguage(rootAccount.address)
 
                 var deriveIndex = index ?: (store.getMaxIndexByChain(rootAccount.id, chain) + 1)
                 var subWallet =
                     WalletSdk.deriveChild(
                         mnemonic = mnemonic.toString(Charsets.UTF_8),
                         chain = chain.bip44Code,
-                        index = deriveIndex
+                        index = deriveIndex,
+                        language = language
                     )
 
                 while (index == null && store.findNonRootAccount(subWallet.address, chain) != null) {
@@ -294,7 +294,8 @@ class AccountOrchestrator(
                         WalletSdk.deriveChild(
                             mnemonic = mnemonic.toString(Charsets.UTF_8),
                             chain = chain.bip44Code,
-                            index = deriveIndex
+                            index = deriveIndex,
+                            language = language
                         )
                 }
 
@@ -359,6 +360,7 @@ class AccountOrchestrator(
                     pathPrefix = derived.path?.toString() ?: ""
                 )
             }
+
             secret != null -> {
                 vault.importSecret(
                     derived.address,
@@ -366,6 +368,7 @@ class AccountOrchestrator(
                     secret.toByteArray()
                 )
             }
+
             else -> {
                 // Sub-accounts are derived from the root mnemonic at signing time and carry no real
                 // private key; importing an empty key would permanently lock the address in vault
