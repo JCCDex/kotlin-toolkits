@@ -15,5 +15,17 @@ data class Path(
         fun root(chainType: ChainType): Path = Path(chain = chainType.bip44Code)
     }
 
-    override fun toString(): String = "m/44'/$chain'/$account'/$change/$index"
+    /**
+     * Display form `m/44'/<coinType>'/<account>'/<change>/<index>`.
+     *
+     * [chain] carries the BIP44 hardened bit ([ChainType.bip44Code] = `slip44 or 0x8000_0000`),
+     * so it is masked off for display — mirroring the JS wallet bridge
+     * (`path.chain & 0x7FFFFFFF`) and Swift `Path.derivationPath`
+     * (`let displayChain = self.chain & 0x7FFF_FFFF`). This also keeps persisted
+     * `derivationPath` values aligned with `VaultRepository`'s `m/44'/60'/0'/0/0` convention.
+     */
+    override fun toString(): String {
+        val displayChain = chain and 0x7FFF_FFFFL
+        return "m/44'/$displayChain'/$account'/$change/$index"
+    }
 }

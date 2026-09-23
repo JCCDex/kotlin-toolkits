@@ -9,7 +9,8 @@ class WalletModelsTest {
     fun path_toString_formatsBip44Path() {
         val path = Path(chain = 2147483708L, account = 1, change = 2, index = 3)
 
-        assertThat(path.toString()).isEqualTo("m/44'/2147483708'/1'/2/3")
+        // 2147483708 == 0x8000003C (ETH bip44Code): the hardened bit is masked off for display.
+        assertThat(path.toString()).isEqualTo("m/44'/60'/1'/2/3")
     }
 
     @Test
