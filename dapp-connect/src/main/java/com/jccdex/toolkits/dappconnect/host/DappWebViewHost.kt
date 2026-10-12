@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -173,6 +174,17 @@ class DappWebViewHost(
                     error: SslError?
                 ) {
                     handler?.cancel()
+                }
+
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): Boolean {
+                    // C181:页面内导航只放行安全 URL(http/https;`isSafeUrl` 与 iOS host 的
+                    // `decidePolicyFor` 同源)。其余 scheme(`intent:` / `tel:` / `market:` / `file:` /
+                    // `data:` …)一律**拦下**(返回 true = 已处理、不加载),避免跳出应用内浏览器。
+                    // 注:WebView 初始 `loadUrl` 不走这里;非 http(s) 的 `url == null` 也按拦下处理。
+                    return !DAppConnectSdk.isSafeUrl(request?.url?.toString().orEmpty())
                 }
             }
         webView.webChromeClient =
