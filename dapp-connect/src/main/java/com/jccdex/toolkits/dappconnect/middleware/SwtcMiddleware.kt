@@ -267,10 +267,28 @@ class SwtcMiddleware(
 
         Log.d(TAG, "Getting public key")
 
-        // Return the public key from wallet account
-        val publicKey = walletAccount.publicKey
+        // Explore 等宿主常只注入 address/name，publicKey 为空；从密文推导（与签名同需 vault）
+        val cached = walletAccount.publicKey.trim()
+        if (cached.isNotEmpty()) {
+            Log.d(TAG, "Public key retrieved from account")
+            return cached
+        }
 
-        Log.d(TAG, "Public key retrieved")
+        // 只用 privateKey 槽派生,避免 getSecret 把签名材料写入 sec: 缓存后,
+        // 后续 signMessage 在桥接窗内免二次 unlock(确认框变唯一闸)。
+        // OA 登录仍串行 sign→getPublicKey:宿主短窗密码复用可消第二次指纹。
+        val material =
+            secretProvider.getPrivateKeyForAddress(address, origin)
+                ?: throw UnauthorizedException("Password required to get public key")
+        val publicKey =
+            WalletSdk
+                .deriveFromPrivateKey(material, ChainType.SWTC.bip44Code)
+                .keypair.publicKey
+                .trim()
+        if (publicKey.isEmpty()) {
+            throw IllegalStateException("Failed to derive public key for address: $address")
+        }
+        Log.d(TAG, "Public key derived from key material")
         return publicKey
     }
 

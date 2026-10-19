@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.net.http.SslError
 import android.view.ViewGroup
+import android.webkit.GeolocationPermissions
 import android.webkit.SslErrorHandler
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -66,6 +67,11 @@ class DappWebViewHostConfig(
      */
     val onShowFileChooser: ((params: WebChromeClient.FileChooserParams?) -> Boolean)? = null,
     /**
+     * H5 `navigator.geolocation` 权限请求:调用方负责系统定位运行时权限,
+     * 完成后 `decide(granted)`。null = 拒绝定位。
+     */
+    val onGeolocationPermission: ((origin: String, decide: (Boolean) -> Unit) -> Unit)? = null,
+    /**
      * 链信息提供者(DApp `wallet_switchEthereumChain`/`eth_chainId` 等);null = 不设置,
      * 由中间件默认行为处理。
      */
@@ -115,6 +121,8 @@ class DappWebViewHost(
                 safeBrowsingEnabled = true
                 setSupportMultipleWindows(true)
                 mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                // OA 打卡等 DApp 依赖 H5 Geolocation;需配合 onGeolocationPermission + App 运行时权限
+                setGeolocationEnabled(true)
             }
         }
 
@@ -221,6 +229,21 @@ class DappWebViewHost(
                     super.onProgressChanged(view, newProgress)
                     update(progress = newProgress.coerceIn(0, 100))
                     update(canGoBack = view?.canGoBack() == true)
+                }
+
+                override fun onGeolocationPermissionsShowPrompt(
+                    origin: String?,
+                    callback: GeolocationPermissions.Callback?
+                ) {
+                    if (callback == null) return
+                    val handler = config.onGeolocationPermission
+                    if (handler == null) {
+                        callback.invoke(origin, false, false)
+                        return
+                    }
+                    handler(origin.orEmpty()) { granted ->
+                        callback.invoke(origin, granted, false)
+                    }
                 }
             }
     }

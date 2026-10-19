@@ -136,7 +136,7 @@ class CachingSecretProviderTest {
             val result = cache.getPrivateKeyForAddress("0x123", "dapp-a.com")
 
             assertEquals("key-0x123", result)
-            // pk and sec are separate caches — each only called once
+            // pk 与 sec 分槽:family seed ≠ hex pk 时不得互相污染
             assertEquals(2, spy.callCount)
         }
 
