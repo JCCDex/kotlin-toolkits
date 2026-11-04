@@ -97,21 +97,22 @@ class EthMiddleware(
         }
 
         val accounts = accountProvider.accounts.first()
-        val currentChain = _currentChainType.value
 
-        // Filter accounts by current chain and exclude HD root accounts
+        // EVM 语义（C185）：eth_accounts / eth_requestAccounts 只返回 EVM 账户。
+        // 旧实现按"当前链"过滤，SWTC 身份下会把 j… 地址当作以太坊账户返回，
+        // 而 personal_sign 等 EVM 方法又拒收该地址，dApp 侧无法自洽。
         val chainAccounts =
             accounts.filter {
-                val isCurrentChain = it.chain == currentChain
+                val isEvm = it.chain.isEvmChain()
                 val isNotHDRoot = !(it.isHD && it.parentId == null)
-                isCurrentChain && isNotHDRoot
+                isEvm && isNotHDRoot
             }
 
         val result = JSONArray()
         chainAccounts.forEach { account ->
             result.put(account.address)
         }
-        Log.d(TAG, "Returning ${result.length()} accounts for chain ${currentChain.name}")
+        Log.d(TAG, "Returning ${result.length()} EVM accounts (currentChain=${_currentChainType.value.name})")
         return result
     }
 

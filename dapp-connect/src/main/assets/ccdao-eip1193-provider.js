@@ -14,6 +14,9 @@
             chainId: '0x1',
             chainIdDecimal: 1,
             accounts: [],
+            // SWTC 账户与 EVM 账户分开存（C185）：混用会让 eth_accounts 返回 j… 地址，
+            // 而 EVM 方法（personal_sign 等）又拒该地址，dApp 无法自洽。
+            swtcAccounts: [],
             listeners: {}
         };
     }
@@ -251,6 +254,9 @@
     // 更新选中地址的全局函数（地址未变时不触发 accountsChanged，避免 WebView 重复注入误触发 DApp 刷新）
     window._updateSelectedAddress = function(address) {
         if (!address) return;
+        // 只接受 EVM 地址：SWTC(j…) 必须走 _updateSwtcSelectedAddress，否则 eth_accounts 会把
+        // 非 EVM 地址报给 dApp，随后 personal_sign 又拒签（C185）。
+        if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return;
         const oldAddress = state.accounts[0];
         state.accounts = [address];
         if (oldAddress !== address) {
@@ -262,8 +268,8 @@
     // EVM 用 accountsChanged，SWTC 用 swtcAccountsChanged，两者分开避免串链。
     window._updateSwtcSelectedAddress = function(address) {
         if (!address) return;
-        const oldAddress = state.accounts[0];
-        state.accounts = [address];
+        const oldAddress = state.swtcAccounts[0];
+        state.swtcAccounts = [address];
         if (oldAddress !== address) {
             provider.emit('swtcAccountsChanged', [address]);
         }

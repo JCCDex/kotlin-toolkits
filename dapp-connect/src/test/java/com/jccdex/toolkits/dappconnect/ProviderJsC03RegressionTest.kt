@@ -38,6 +38,24 @@ class ProviderJsC03RegressionTest {
         )
     }
 
+    @Test
+    fun providerJs_keepsSwtcAndEvmAccountsSeparate() {
+        val js = loadProviderAsset()
+
+        assertTrue(
+            js.contains("swtcAccounts: []"),
+            "provider must keep a separate SWTC account slot (C185)"
+        )
+        assertTrue(
+            js.contains("state.swtcAccounts = [address]"),
+            "_updateSwtcSelectedAddress must write swtcAccounts (C185)"
+        )
+        assertTrue(
+            js.contains("/^0x[0-9a-fA-F]{40}$/"),
+            "_updateSelectedAddress must reject non-EVM addresses (C185)"
+        )
+    }
+
     private fun loadProviderAsset(): String {
         val candidates =
             listOf(

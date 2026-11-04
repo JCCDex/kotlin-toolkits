@@ -140,6 +140,34 @@ class EthMiddlewareTest {
         }
 
     @Test
+    fun `requestAccounts returns empty for a SWTC-only wallet`() =
+        runTest {
+            val swtcAccount =
+                WalletAccount(
+                    id = "swtc-1",
+                    address = "jwWmuiN6B1KjNJjH6f8cFxeY83UpjSMRWq",
+                    chain = ChainType.SWTC,
+                    name = "swtc",
+                    isHD = false,
+                    parentId = null,
+                    path = null,
+                    publicKey = "pub"
+                )
+            val middleware =
+                EthMiddleware(
+                    StubAccountProvider(listOf(swtcAccount)),
+                    SpySecretProvider(),
+                    StubNodeProvider(),
+                    initialChain = ChainType.SWTC
+                )
+            middleware.setRequestAccountsCallback { true }
+
+            val result = middleware.requestAccounts("https://dapp.example.com")
+
+            assertEquals(0, result.length(), "eth_accounts 只报 EVM 账户（C185）")
+        }
+
+    @Test
     fun `requestAccounts throws when callback rejects`() =
         runTest {
             val middleware =
