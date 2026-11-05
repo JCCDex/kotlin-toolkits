@@ -34,6 +34,9 @@ class EthMiddleware(
 ) : IEthMiddleware {
     companion object {
         private const val TAG = "EthMiddleware"
+
+        /** 非 EVM 链(或未配置 EVM id)时 `eth_chainId` 的默认值;不随链切换变化(C186)。 */
+        private const val EVM_DEFAULT_CHAIN_ID_HEX: String = "0x1"
     }
 
     @Volatile private var chainProvider: ChainProvider? = chainProvider
@@ -51,6 +54,13 @@ class EthMiddleware(
     // Current selected chain
     private val _currentChainType = MutableStateFlow(initialChain)
     override val currentChainType: StateFlow<ChainType> = _currentChainType.asStateFlow()
+
+    /**
+     * C186:`eth_chainId` **只属于 EVM 域**,所以用独立状态保存,而不是从 [currentChainType] 现算。
+     * 非 EVM 链(如 SWTC)的切换会改 [currentChainType],但**不得**改动这个值 —— 否则 dApp 会看到
+     * "切到 SWTC 后 chainId 变成 0x1"这种把非 EVM 链误报成以太坊主网的假象。
+     */
+    private val evmChainIdHexFlow = MutableStateFlow(initialChain.evmChainIdHexOrDefault())
 
     /**
      * Set callback for account switched event
@@ -77,8 +87,9 @@ class EthMiddleware(
      * Set current chain type (used for initialization)
      */
     override fun setCurrentChainType(chainType: ChainType) {
+        // C186:这里只切"账户过滤用的当前链";eth_chainId 属于 EVM 域,非 EVM 链切换保持原值。
         _currentChainType.value = chainType
-        Log.d(TAG, "Current chain type set to: ${chainType.name}")
+        Log.d(TAG, "Current chain type set to: ${chainType.name} (eth_chainId stays ${evmChainIdHexFlow.value})")
     }
 
     /**
@@ -129,10 +140,13 @@ class EthMiddleware(
     /**
      * Handle eth_chainId RPC call
      */
-    override fun getChainId(): String {
-        val chainId = _currentChainType.value.evmChainId ?: 1L
-        return "0x${chainId.toString(16)}"
-    }
+    override fun getChainId(): String = evmChainIdHexFlow.value
+
+    /** EVM 链 → `0x` + evmChainId;非 EVM 链(或无 EVM id)落到默认值,不伪造其它链的 id。 */
+    private fun ChainType.evmChainIdHexOrDefault(): String =
+        evmChainId?.let {
+            "0x${it.toString(16)}"
+        } ?: EVM_DEFAULT_CHAIN_ID_HEX
 
     /**
      * Validate that the address exists in wallet and belongs to an EVM chain
@@ -538,6 +552,8 @@ class EthMiddleware(
         // Execute chain switch
         Log.d(TAG, "Switching from ${currentChain.name} to ${targetChain.name}")
         _currentChainType.value = targetChain
+        // C186:只有 EVM→EVM 的切换才更新 eth_chainId。
+        evmChainIdHexFlow.value = targetChain.evmChainIdHexOrDefault()
 
         // Switch to target chain account
         val targetChainAccounts = getAccountsForChain(targetChain)

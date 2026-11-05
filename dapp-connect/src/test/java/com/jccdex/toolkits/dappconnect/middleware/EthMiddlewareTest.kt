@@ -139,6 +139,49 @@ class EthMiddlewareTest {
             assertEquals("0xabc", result.getString(0))
         }
 
+    // ── C186:eth_chainId 只属于 EVM 域 ──
+
+    @Test
+    fun `chainId stays when a non-EVM chain is selected`() =
+        runTest {
+            val middleware =
+                EthMiddleware(
+                    StubAccountProvider(listOf(testAccount)),
+                    SpySecretProvider(),
+                    StubNodeProvider(),
+                    initialChain = ChainType.BSC
+                )
+            assertEquals("0x38", middleware.getChainId())
+
+            middleware.setCurrentChainType(ChainType.SWTC)
+
+            assertEquals(
+                "0x38",
+                middleware.getChainId(),
+                "切到 SWTC(非 EVM)不得改动 eth_chainId"
+            )
+        }
+
+    @Test
+    fun `chainId follows an EVM to EVM switch`() =
+        runTest {
+            val provider = io.mockk.mockk<com.jccdex.toolkits.dappconnect.provider.ChainProvider>(relaxed = true)
+            io.mockk.coEvery { provider.requestChainSwitch(any(), any(), any()) } returns true
+            val middleware =
+                EthMiddleware(
+                    StubAccountProvider(listOf(testAccount)),
+                    SpySecretProvider(),
+                    StubNodeProvider(),
+                    chainProvider = provider,
+                    initialChain = ChainType.BSC
+                )
+            assertEquals("0x38", middleware.getChainId())
+
+            middleware.switchEthereumChain("0x89", "https://dapp.example.com")
+
+            assertEquals("0x89", middleware.getChainId(), "EVM→EVM 切换应更新 eth_chainId")
+        }
+
     @Test
     fun `requestAccounts returns empty for a SWTC-only wallet`() =
         runTest {
