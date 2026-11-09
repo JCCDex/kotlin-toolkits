@@ -1021,6 +1021,68 @@ class DidSdk internal constructor(
             }
         }
 
+    // ── DApp RPC 入口(契约里的 did_publish / did_resolve / did_stat / did_generateVC /
+    //    did_verifyCredential / did_generateDidDoc)──
+    //
+    // 与内部方法的三条差异:
+    // ①私钥由钱包注入(页面只给 address),绝不接受页面传 privateKey;
+    // ②动状态的两个(publishDid / generateVC)必须经宿主确认,fail-closed(与 signCredentialForDApp 同语义);
+    // ③resolve 走 bridge 的原始文档、不落库,避免 dApp 触发 Room 写。
+
+    /** dApp 解析 DID 文档:不落库;DID 不存在(bridge 的 noLink)返回 null。 */
+    suspend fun resolveDidForDApp(did: String): String? =
+        withContext(Dispatchers.IO) {
+            val raw = bridge.call("didResolve", JSONObject().apply { put("did", did) }.toString())
+            raw.trim().takeIf { it.isNotEmpty() && it != "null" }
+        }
+
+    /** dApp 读 DID 统计(bridge 的 didStat,同步实现)。 */
+    suspend fun didStatForDApp(did: String): String =
+        withContext(Dispatchers.IO) {
+            bridge.call("didStat", JSONObject().apply { put("did", did) }.toString())
+        }
+
+    /** dApp 生成 DID 文档(纯拼装,不需要私钥)。 */
+    suspend fun generateDidDocForDApp(paramsJson: String): String =
+        withContext(Dispatchers.IO) { bridge.call("generateDidDoc", paramsJson) }
+
+    /** dApp 发布 DID 文档:私钥由钱包注入,且必须经宿主确认(没有回调 = 拒绝)。 */
+    suspend fun publishDidForDApp(
+        privateKey: String,
+        did: String,
+        didDocument: String,
+        onConfirm: (suspend (String) -> Boolean)? = null
+    ): PublishDidResult =
+        withContext(Dispatchers.IO) {
+            val payload =
+                JSONObject().apply {
+                    put("did", did)
+                    put("didDocument", didDocument)
+                }
+            val confirmed = onConfirm?.invoke(payload.toString()) ?: false
+            if (!confirmed) {
+                Log.e("DidSdk", "publishDidForDApp rejected: no host confirmation")
+                throw IllegalStateException("DID publishing requires host confirmation")
+            }
+            publishDid(did, privateKey, didDocument)
+        }
+
+    /** dApp 生成 VC:私钥由钱包注入,且必须经宿主确认(没有回调 = 拒绝)。 */
+    suspend fun generateVCForDApp(
+        privateKey: String,
+        paramsJson: String,
+        onConfirm: (suspend (String) -> Boolean)? = null
+    ): String =
+        withContext(Dispatchers.IO) {
+            val params = JSONObject(paramsJson).apply { put("privateKey", privateKey) }
+            val confirmed = onConfirm?.invoke(paramsJson) ?: false
+            if (!confirmed) {
+                Log.e("DidSdk", "generateVCForDApp rejected: no host confirmation")
+                throw IllegalStateException("VC generation requires host confirmation")
+            }
+            bridge.call("generateVC", params.toString())
+        }
+
     /**
      * Verify a VC signature and validity. Mirrors did_DApp [verifyCredential].
      */

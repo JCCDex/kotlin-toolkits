@@ -40,6 +40,15 @@ enum class DAppMethod {
     IPFS_PERSONALSIGN,
     IPFS_GETPUBLICKEY,
 
+    // DID bridge 能力(对应 did-bridge.js 的 publishDid / didResolve / didStat /
+    // generateVC / verifyCredential / generateDidDoc)
+    DID_PUBLISH,
+    DID_RESOLVE,
+    DID_STAT,
+    DID_GENERATEVC,
+    DID_VERIFYCREDENTIAL,
+    DID_GENERATEDIDDOC,
+
     // Common
     WEB3_CLIENTVERSION,
 
@@ -86,6 +95,14 @@ enum class DAppMethod {
                 "did_issueCredential" -> DID_ISSUECREDENTIAL
                 "ipfs_personalSign" -> IPFS_PERSONALSIGN
                 "ipfs_getPublicKey" -> IPFS_GETPUBLICKEY
+
+                // DID bridge 能力(私钥由钱包注入;publish/generateVC 还要宿主确认)
+                "did_publish" -> DID_PUBLISH
+                "did_resolve" -> DID_RESOLVE
+                "did_stat" -> DID_STAT
+                "did_generateVC" -> DID_GENERATEVC
+                "did_verifyCredential" -> DID_VERIFYCREDENTIAL
+                "did_generateDidDoc" -> DID_GENERATEDIDDOC
 
                 // Common
                 "web3_clientVersion" -> WEB3_CLIENTVERSION

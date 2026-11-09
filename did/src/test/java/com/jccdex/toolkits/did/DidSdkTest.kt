@@ -2582,4 +2582,94 @@ class DidSdkTest {
             destroyCount++
         }
     }
+
+    // ── DApp RPC 入口(新增 6 个 DID 能力)──
+
+    @Test
+    fun `publishDidForDApp is fail closed without host confirmation`() =
+        runTest {
+            val ex =
+                assertThrows(IllegalStateException::class.java) {
+                    runBlocking {
+                        sdk.publishDidForDApp(
+                            privateKey = "00aa",
+                            did = "did:swtc:abc",
+                            didDocument = """{"id":"did:swtc:abc"}""",
+                            onConfirm = null
+                        )
+                    }
+                }
+            assertTrue(ex.message!!.contains("requires host confirmation"))
+            coVerify(exactly = 0) { bridge.callAs(any(), any(), any<Class<*>>()) }
+        }
+
+    @Test
+    fun `publishDidForDApp publishes through the bridge after confirmation`() =
+        runTest {
+            coEvery { bridge.callAs(any(), any(), PublishDidResult::class.java) } returns
+                PublishDidResult(code = "0", message = "success")
+
+            val result =
+                sdk.publishDidForDApp(
+                    privateKey = "00aa",
+                    did = "did:swtc:abc",
+                    didDocument = """{"id":"did:swtc:abc"}""",
+                    onConfirm = { true }
+                )
+
+            assertEquals("0", result.code)
+            coVerify { bridge.callAs("publishDid", any(), PublishDidResult::class.java) }
+        }
+
+    @Test
+    fun `generateVCForDApp is fail closed and injects the private key`() =
+        runTest {
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking {
+                    sdk.generateVCForDApp(
+                        privateKey = "00aa",
+                        paramsJson = """{"address":"j...","types":["A"]}""",
+                        onConfirm = null
+                    )
+                }
+            }
+            coVerify(exactly = 0) { bridge.call("generateVC", any()) }
+
+            coEvery { bridge.call("generateVC", any()) } returns """{"id":"vc"}"""
+            sdk.generateVCForDApp(
+                privateKey = "00aa",
+                paramsJson = """{"address":"j...","types":["A"]}""",
+                onConfirm = { true }
+            )
+            coVerify {
+                bridge.call(
+                    "generateVC",
+                    match { it.contains("\"privateKey\"") }
+                )
+            }
+        }
+
+    @Test
+    fun `didStatForDApp and generateDidDocForDApp forward their params`() =
+        runTest {
+            coEvery { bridge.call("didStat", any()) } returns """{"cid":"bafy"}"""
+            coEvery { bridge.call("generateDidDoc", any()) } returns """{"id":"did:swtc:abc"}"""
+
+            assertEquals("""{"cid":"bafy"}""", sdk.didStatForDApp("did:swtc:abc"))
+            sdk.generateDidDocForDApp("""{"did":"did:swtc:abc"}""")
+
+            coVerify { bridge.call("didStat", match { it.contains("did:swtc:abc") }) }
+            coVerify { bridge.call("generateDidDoc", match { it.contains("did:swtc:abc") }) }
+        }
+
+    @Test
+    fun `resolveDidForDApp returns null for a missing document and never saves`() =
+        runTest {
+            coEvery { bridge.call("didResolve", any()) } returns "null"
+            assertNull(sdk.resolveDidForDApp("did:swtc:missing"))
+
+            coEvery { bridge.call("didResolve", any()) } returns """{"id":"did:swtc:abc"}"""
+            assertEquals("""{"id":"did:swtc:abc"}""", sdk.resolveDidForDApp("did:swtc:abc"))
+            coVerify(exactly = 0) { coreService.resolveAndSaveDid(any()) }
+        }
 }

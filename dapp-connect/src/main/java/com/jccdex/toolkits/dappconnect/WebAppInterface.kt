@@ -420,6 +420,67 @@ open class WebAppInterface(
                 handleIpfsGetPublicKey(network, nonce, address)
             }
 
+            // ── DID bridge 能力(私钥由钱包注入;publish / generateVC 还要宿主确认)──
+            DAppMethod.DID_PUBLISH -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val payload = params.paramObject(0)
+                if (payload == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_publish parameters")
+                } else {
+                    handleDidPublish(network, nonce, payload)
+                }
+            }
+
+            DAppMethod.DID_RESOLVE -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val did = params.paramString(0)
+                if (did == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_resolve parameters")
+                } else {
+                    handleDidResolve(network, nonce, did)
+                }
+            }
+
+            DAppMethod.DID_STAT -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val did = params.paramString(0)
+                if (did == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_stat parameters")
+                } else {
+                    handleDidStat(network, nonce, did)
+                }
+            }
+
+            DAppMethod.DID_GENERATEVC -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val payload = params.paramObject(0)
+                if (payload == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_generateVC parameters")
+                } else {
+                    handleDidGenerateVC(network, nonce, payload)
+                }
+            }
+
+            DAppMethod.DID_VERIFYCREDENTIAL -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val credential = params.paramString(0) ?: params.paramObject(0)?.toString()
+                if (credential == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_verifyCredential parameters")
+                } else {
+                    handleDidVerifyCredential(network, nonce, credential)
+                }
+            }
+
+            DAppMethod.DID_GENERATEDIDDOC -> {
+                val params = requireParamsArray(obj, network, nonce) ?: return
+                val payload = params.paramObject(0)
+                if (payload == null) {
+                    sendInvalidParams(network, nonce, "Invalid did_generateDidDoc parameters")
+                } else {
+                    handleDidGenerateDidDoc(network, nonce, payload)
+                }
+            }
+
             DAppMethod.WEB3_CLIENTVERSION -> {
                 sendSuccessResponse(network, nonce, "CCDAO/v1.0.0")
             }
@@ -789,6 +850,171 @@ open class WebAppInterface(
                 sendSuccessResponse(network, nonce, json)
             } catch (e: Throwable) {
                 dispatchRpcFailure(network, nonce, e, "Failed to get public key", "did_getBase58PublicKey failed")
+            }
+        }
+    }
+
+    /**
+     * dApp 发布 DID 文档。
+     *
+     * 与内部 `publishDid` 的差异:私钥由钱包按 `address` 取(页面**不能**传 privateKey),
+     * 且必须经宿主确认(`didCredentialConfirmCallback`,没有回调即拒绝 —— fail-closed)。
+     */
+    private fun handleDidPublish(
+        network: String,
+        nonce: String,
+        payload: JSONObject
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val address = payload.optString("address").trim()
+                if (address.isEmpty()) throw IllegalArgumentException("Missing address")
+                val did = payload.optString("did").trim()
+                if (did.isEmpty()) throw IllegalArgumentException("Missing did")
+                val didDocument =
+                    payload.opt("didDocument")?.toString()
+                        ?: throw IllegalArgumentException("Missing didDocument")
+                val privateKey = getPrivateKeyOrFail(address)
+                val result =
+                    didSdk.publishDidForDApp(
+                        privateKey = privateKey,
+                        did = did,
+                        didDocument = didDocument,
+                        onConfirm = didCredentialConfirmCallback
+                    )
+                sendSuccessResponse(
+                    network,
+                    nonce,
+                    JSONObject().apply {
+                        put("code", result.code)
+                        put("message", result.message)
+                    }
+                )
+                didDocumentMutationListener?.onDidDocumentMutated()
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to publish DID", "did_publish failed")
+            }
+        }
+    }
+
+    /** dApp 解析 DID 文档(不落库;文档不存在时返回 null)。 */
+    private fun handleDidResolve(
+        network: String,
+        nonce: String,
+        did: String
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val document = didSdk.resolveDidForDApp(did)
+                sendSuccessResponse(
+                    network,
+                    nonce,
+                    document?.let { JSONObject(it) } ?: JSONObject.NULL
+                )
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to resolve DID", "did_resolve failed")
+            }
+        }
+    }
+
+    /** dApp 读 DID 统计。 */
+    private fun handleDidStat(
+        network: String,
+        nonce: String,
+        did: String
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val raw = didSdk.didStatForDApp(did)
+                sendSuccessResponse(network, nonce, JSONObject(raw))
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to read DID stat", "did_stat failed")
+            }
+        }
+    }
+
+    /**
+     * dApp 生成 VC。
+     *
+     * 私钥由钱包按 `address` 取;必须经宿主确认(没有回调即拒绝),与 `did_issueCredential` 同语义。
+     */
+    private fun handleDidGenerateVC(
+        network: String,
+        nonce: String,
+        payload: JSONObject
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val address = payload.optString("address").trim()
+                if (address.isEmpty()) throw IllegalArgumentException("Missing address")
+                val privateKey = getPrivateKeyOrFail(address)
+                val vcJson =
+                    didSdk.generateVCForDApp(
+                        privateKey = privateKey,
+                        paramsJson = payload.toString(),
+                        onConfirm = didCredentialConfirmCallback
+                    )
+                sendSuccessResponse(network, nonce, JSONObject(vcJson))
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to generate VC", "did_generateVC failed")
+            }
+        }
+    }
+
+    /** dApp 验证凭证(只读,不需要私钥)。 */
+    private fun handleDidVerifyCredential(
+        network: String,
+        nonce: String,
+        credentialJson: String
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val result = didSdk.verifyCredential(credentialJson)
+                sendSuccessResponse(
+                    network,
+                    nonce,
+                    JSONObject().apply {
+                        put("verified", result.verified)
+                        put("unknown", result.unknown)
+                        result.results?.let { put("results", it) }
+                    }
+                )
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to verify credential", "did_verifyCredential failed")
+            }
+        }
+    }
+
+    /** dApp 生成 DID 文档(纯拼装,不需要私钥)。 */
+    private fun handleDidGenerateDidDoc(
+        network: String,
+        nonce: String,
+        payload: JSONObject
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val didSdk =
+                    DAppConnectSdk.getDidSdk()
+                        ?: throw IllegalStateException("DidSdk not initialized")
+                val docJson = didSdk.generateDidDocForDApp(payload.toString())
+                sendSuccessResponse(network, nonce, JSONObject(docJson))
+            } catch (e: Throwable) {
+                dispatchRpcFailure(network, nonce, e, "Failed to generate DID document", "did_generateDidDoc failed")
             }
         }
     }
